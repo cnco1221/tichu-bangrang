@@ -34,7 +34,7 @@ function broadcast(code) {
   }
 }
 
-function runBots(code, delay = 650) {
+function runBots(code, delay = 700) {
   const room = rooms.get(code);
   if (!room) return;
   const acted = room.botAct();
