@@ -607,6 +607,27 @@ function playCardSound() {
   } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
 }
 
+function playTrickStartSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const now = ctx.currentTime;
+    [660, 880].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      const t0 = now + i * 0.09;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.13, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t0); o.stop(t0 + 0.18);
+    });
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
 let lastTrickPlayCount = 0;
 function checkPlaySound(newState) {
   if (newState && newState.currentTrick) {
@@ -618,12 +639,16 @@ function checkPlaySound(newState) {
 
 let lastSeenActionSeq = 0;
 let passBubbleSeat = null;
-function checkPassBubble(s) {
+function checkActionEvents(s) {
   if (s && typeof s.actionSeq === "number" && s.actionSeq > lastSeenActionSeq) {
     lastSeenActionSeq = s.actionSeq;
-    if (s.lastAction && s.lastAction.type === "pass") {
-      passBubbleSeat = s.lastAction.seat;
-      setTimeout(() => { passBubbleSeat = null; render(); }, 1000);
+    if (s.lastAction) {
+      if (s.lastAction.type === "pass") {
+        passBubbleSeat = s.lastAction.seat;
+        setTimeout(() => { passBubbleSeat = null; render(); }, 1000);
+      } else if (s.lastAction.type === "trickStart") {
+        playTrickStartSound();
+      }
     }
   }
 }
@@ -640,7 +665,7 @@ let exchangeSummaryVisible = false;
 
 socket.on("state", (s) => {
   checkPlaySound(s);
-  checkPassBubble(s);
+  checkActionEvents(s);
   if (s.phase === "grand" && (!state || state.phase !== "grand")) {
     exchangeStage = { left: null, across: null, right: null };
     exchangeSelectedCardId = null;

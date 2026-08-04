@@ -264,7 +264,7 @@ class Room {
 
     if (combo.type === "dog") {
       const mate = teammateOf(seat);
-      this._finishTrickAndLead(mate, { skipScoring: true });
+      this._finishTrickAndLead(mate, { skipScoring: true, silent: true });
       return this._afterPlayResult();
     }
 
@@ -324,23 +324,27 @@ class Room {
     return { ok: true };
   }
 
-  _finishTrickAndLead(winnerSeat, { skipScoring } = {}) {
+  _finishTrickAndLead(winnerSeat, { skipScoring, silent } = {}) {
     if (!skipScoring && !this.currentTrick.plays.some((p) => p.combo.isDragon)) {
       const pile = this.currentTrick.plays.flatMap((p) => p.cards);
       this.wonPiles[winnerSeat].push(...pile);
     }
-    this._leadNext(winnerSeat);
+    this._leadNext(winnerSeat, { silent });
   }
 
-  _leadNext(seat) {
+  _leadNext(seat, opts = {}) {
     this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
-    this.requestedRank = null; // 새 라운드 트릭마다 요청 초기화? -> 실제로는 라운드(핸드) 전체에 걸쳐 유지되어야 하므로 여기서 지우지 않음
+    // 참새 요청은 라운드(핸드) 전체에 걸쳐 이행될 때까지 유지되어야 하므로 여기서 지우지 않는다.
     if (this.phase !== "play") return;
     let leader = seat;
     if (this.finished[leader]) leader = this._nextActiveSeat(leader);
     if (leader === null) return;
     this.turnSeat = leader;
     this.currentTrick.leaderSeat = leader;
+    if (!opts.silent) {
+      this.lastAction = { type: "trickStart", seat: leader };
+      this.actionSeq++;
+    }
     this._armTimer();
   }
 
