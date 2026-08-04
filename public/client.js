@@ -266,6 +266,26 @@ function seatBoxHTML(seat, posClass, role) {
   </div>`;
 }
 
+function comboLabel(combo) {
+  if (!combo) return "";
+  if (combo.type === "dog") return "개";
+  if (combo.type === "single") {
+    const c = combo.cards[0];
+    if (c.special === "dragon") return "용 싱글";
+    if (c.special === "phoenix") return "봉황 싱글";
+    if (c.special === "sparrow") return "참새 싱글";
+    return `${RANK_LABEL[c.rank]} 싱글`;
+  }
+  if (combo.type === "pair") return `${RANK_LABEL[combo.power]} 페어`;
+  if (combo.type === "triple") return `${RANK_LABEL[combo.power]} 트리플`;
+  if (combo.type === "fullhouse") return `${RANK_LABEL[combo.power]} 풀하우스`;
+  if (combo.type === "straight") return `${combo.len}장 스트레이트`;
+  if (combo.type === "pairSequence") return `${combo.len}장 연속페어`;
+  if (combo.type === "bomb4") return `${RANK_LABEL[combo.power]} 포카드 봄!`;
+  if (combo.type === "bombStraight") return `${combo.len}장 스트레이트 봄!`;
+  return "";
+}
+
 function renderPlay() {
   const viewerSeat = isSpectator ? 0 : mySeat; // 관전자는 임의 기준(회전 없음) - 좌석0을 남으로 고정
   const rightSeat = (viewerSeat + 1) % 4; // 동(상대)
@@ -273,7 +293,9 @@ function renderPlay() {
   const leftSeat = (viewerSeat + 3) % 4;  // 서(상대)
 
   const trick = state.currentTrick;
-  const plays = trick.plays.map((p) => `<div class="mini-combo">${p.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>`).join("");
+  const lastPlay = trick.plays.length > 0 ? trick.plays[trick.plays.length - 1] : null;
+  const plays = lastPlay ? `<div class="mini-combo">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = state.requestedRank
     ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">참새 요청: ${RANK_LABEL[state.requestedRank]} ${state.requestSatisfied ? "(이행됨)" : ""}</div>`
     : "";
@@ -309,6 +331,7 @@ function renderPlay() {
         <div class="seat-center trick-area">
           ${requestedTag}
           <div class="trick-plays">${plays || `<div class="trick-empty">${isLeading ? "리드를 기다리는 중" : ""}</div>`}</div>
+          ${lastPlay ? `<div class="combo-label">${seatLabel(lastPlay.seat)} · ${comboLabelText}</div>` : ""}
         </div>
         ${seatBoxHTML(rightSeat, "seat-east", "상대")}
         ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
