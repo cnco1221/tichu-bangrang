@@ -8,6 +8,7 @@ let isSpectator = false;
 let state = null;
 let selected = new Set();
 let exchangeStage = { left: null, across: null, right: null };
+let exchangeSelectedCardId = null;
 let toastTimer = null;
 let menuOpen = false;
 let chatOpen = false;
@@ -28,11 +29,12 @@ function showToast(msg) {
   toastTimer = setTimeout(() => el.remove(), 2600);
 }
 
-function cardHTML(card, { small = false, isSelected = false } = {}) {
+function cardHTML(card, { small = false, isSelected = false, isPicking = false } = {}) {
   const cls = ["card"];
   if (small) cls.push("small");
   if (card.special) cls.push(`special-${card.special}`);
   if (isSelected) cls.push("selected");
+  if (isPicking) cls.push("picking");
 
   if (card.special === "sparrow") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
@@ -72,7 +74,7 @@ function render() {
   if (state.phase === "lobby") return renderLobby();
   if (state.phase === "grand") return renderGrand();
   if (state.phase === "exchange") return renderExchange();
-  if (state.phase === "play") return renderPlay();
+  if (state.phase === "play") return exchangeSummaryVisible ? renderExchangeSummary() : renderPlay();
   if (state.phase === "roundEnd") return renderRoundEnd();
   if (state.phase === "gameover") return renderGameOver();
   if (state.phase === "aborted") return renderAborted();
@@ -214,14 +216,15 @@ function renderExchange() {
   const submitted = state.exchangeSubmitted[mySeat];
   const hand = state.myHand || [];
   const staged = new Set([exchangeStage.left, exchangeStage.across, exchangeStage.right].filter(Boolean));
-  const handHTML = hand.map((c) => cardHTML(c, { isSelected: staged.has(c.id) })).join("");
+  const handHTML = hand.map((c) => cardHTML(c, { isSelected: staged.has(c.id), isPicking: c.id === exchangeSelectedCardId })).join("");
 
   const slot = (key, label) => {
     const id = exchangeStage[key];
     const card = id ? hand.find((c) => c.id === id) : null;
-    return `<div class="exchange-slot ${card ? "filled" : ""}" data-slot="${key}">
+    const hint = card ? "" : (exchangeSelectedCardId ? "여기로 배치" : "카드 먼저 선택");
+    return `<div class="exchange-slot ${card ? "filled" : ""} ${!card && exchangeSelectedCardId ? "awaiting" : ""}" data-slot="${key}">
       <div class="label">${label}</div>
-      ${card ? cardHTML(card, { small: true }) : "탭해서 배치"}
+      ${card ? cardHTML(card, { small: true }) : hint}
     </div>`;
   };
   const waitingOn = state.players.map((p, i) => p && !state.exchangeSubmitted[i] ? p.name : null).filter(Boolean);
@@ -229,7 +232,7 @@ function renderExchange() {
   app.innerHTML = `
     <div class="lobby">
       <h2 class="accent" style="font-size:32px">카드 교환</h2>
-      <div class="status-line">카드 3장을 골라 세 사람에게 한 장씩 나눠주세요</div>
+      <div class="status-line">카드를 탭해서 고른 다음, 줄 사람 칸을 탭하세요</div>
       <div class="exchange-slots">
         ${slot("right", "왼쪽 사람")}
         ${slot("across", "파트너")}
@@ -248,18 +251,46 @@ function renderExchange() {
         for (const k of ["left", "across", "right"]) {
           if (exchangeStage[k] === id) { exchangeStage[k] = null; render(); return; }
         }
-        const emptyKey = ["left", "across", "right"].find((k) => !exchangeStage[k]);
-        if (!emptyKey) return showToast("이미 3장을 다 배치했어요. 슬롯을 눌러 해제하세요");
-        exchangeStage[emptyKey] = id;
+        exchangeSelectedCardId = exchangeSelectedCardId === id ? null : id;
         render();
       };
     });
     document.querySelectorAll(".exchange-slot").forEach((el) => {
-      el.onclick = () => { const key = el.dataset.slot; if (exchangeStage[key]) { exchangeStage[key] = null; render(); } };
+      el.onclick = () => {
+        const key = el.dataset.slot;
+        if (exchangeSelectedCardId) {
+          for (const k of ["left", "across", "right"]) if (exchangeStage[k] === exchangeSelectedCardId) exchangeStage[k] = null;
+          exchangeStage[key] = exchangeSelectedCardId;
+          exchangeSelectedCardId = null;
+          render();
+        } else if (exchangeStage[key]) {
+          exchangeStage[key] = null;
+          render();
+        }
+      };
     });
     const btn = document.getElementById("submitExchange");
     if (btn) btn.onclick = () => socket.emit("submitExchange", { left: exchangeStage.left, across: exchangeStage.across, right: exchangeStage.right });
   }
+}
+
+function renderExchangeSummary() {
+  const rightSeat = (mySeat + 1) % 4;
+  const topSeat = (mySeat + 2) % 4;
+  const leftSeat = (mySeat + 3) % 4;
+  const labelFor = (s) => s === topSeat ? "파트너" : s === rightSeat ? "오른쪽 사람" : s === leftSeat ? "왼쪽 사람" : "?";
+  const items = (exchangeSummaryData || []).map(({ from, card }) => `
+    <div class="received-item">
+      <div class="label">${labelFor(from)}에게 받음</div>
+      ${cardHTML(card)}
+    </div>`).join("");
+  app.innerHTML = `
+    <div class="lobby">
+      <h2 class="accent" style="font-size:30px">받은 카드</h2>
+      <div class="hand-actions" style="flex-wrap:wrap; gap:16px; justify-content:center;">${items}</div>
+      <div class="status-line">잠시 후 게임이 시작돼요...</div>
+    </div>
+  `;
 }
 
 /* ---------------- Play (나침반 UI) ---------------- */
@@ -272,7 +303,9 @@ function seatBoxHTML(seat, posClass, role) {
   const finished = state.finished[seat] ? " ✓" : "";
   const count = state.handCounts[seat];
   const connected = state.players[seat] && state.players[seat].connected;
+  const passBubble = passBubbleSeat === seat ? `<div class="pass-bubble">패스</div>` : "";
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}">
+    ${passBubble}
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
     <div class="count">${count}장</div>
@@ -319,7 +352,7 @@ function renderPlay() {
     animatedPlayKey = playKey;
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
-  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length > 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = state.requestedRank
     ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">콜 : ${RANK_LABEL[state.requestedRank]}${state.requestSatisfied ? " ✓" : ""}</div>`
@@ -583,6 +616,18 @@ function checkPlaySound(newState) {
   }
 }
 
+let lastSeenActionSeq = 0;
+let passBubbleSeat = null;
+function checkPassBubble(s) {
+  if (s && typeof s.actionSeq === "number" && s.actionSeq > lastSeenActionSeq) {
+    lastSeenActionSeq = s.actionSeq;
+    if (s.lastAction && s.lastAction.type === "pass") {
+      passBubbleSeat = s.lastAction.seat;
+      setTimeout(() => { passBubbleSeat = null; render(); }, 1000);
+    }
+  }
+}
+
 function applyTichuBackground(s) {
   const anyLarge = s && s.tichuCalled && s.tichuCalled.some((t) => t === "large");
   const anySmall = s && s.tichuCalled && s.tichuCalled.some((t) => t === "small");
@@ -590,8 +635,21 @@ function applyTichuBackground(s) {
   document.body.classList.toggle("tichu-small-bg", !anyLarge && !!anySmall);
 }
 
+let exchangeSummaryData = null;
+let exchangeSummaryVisible = false;
+
 socket.on("state", (s) => {
   checkPlaySound(s);
+  checkPassBubble(s);
+  if (s.phase === "grand" && (!state || state.phase !== "grand")) {
+    exchangeStage = { left: null, across: null, right: null };
+    exchangeSelectedCardId = null;
+  }
+  if (!isSpectator && s.phase === "play" && state && state.phase === "exchange") {
+    exchangeSummaryData = s.exchangeReceived;
+    exchangeSummaryVisible = true;
+    setTimeout(() => { exchangeSummaryVisible = false; render(); }, 3000);
+  }
   state = s;
   applyTichuBackground(s);
   render();
