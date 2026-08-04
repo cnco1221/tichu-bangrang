@@ -41,10 +41,22 @@ function cardHTML(card, { small = false, isSelected = false } = {}) {
       <div class="corner-br">1</div>
     </div>`;
   }
+  if (card.special === "dragon") {
+    return `<div class="${cls.join(" ")}" data-id="${card.id}">
+      <div class="rank">龍</div>
+      <div class="center-icon">🐉</div>
+      <div class="suit" style="color:#8a5a1a">용</div>
+    </div>`;
+  }
+  if (card.special === "phoenix") {
+    return `<div class="${cls.join(" ")}" data-id="${card.id}">
+      <div class="rank">鳳</div>
+      <div class="center-icon">🔥</div>
+      <div class="suit" style="color:#a33b35">봉황</div>
+    </div>`;
+  }
   let rankTxt, suitTxt, color;
-  if (card.special === "dragon") { rankTxt = "龍"; suitTxt = "용"; color = "#8a5a1a"; }
-  else if (card.special === "phoenix") { rankTxt = "鳳"; suitTxt = "봉황"; color = "#a33b35"; }
-  else if (card.special === "dog") { rankTxt = "狗"; suitTxt = "개"; color = "#3a6b57"; }
+  if (card.special === "dog") { rankTxt = "狗"; suitTxt = "개"; color = "#3a6b57"; }
   else { rankTxt = RANK_LABEL[card.rank]; suitTxt = SUIT_SYMBOL[card.suit]; color = SUIT_COLOR[card.suit]; }
   return `<div class="${cls.join(" ")}" data-id="${card.id}">
     <div class="rank">${rankTxt}</div>
@@ -217,9 +229,9 @@ function renderExchange() {
       <h2 class="accent" style="font-size:32px">카드 교환</h2>
       <div class="status-line">카드 3장을 골라 세 사람에게 한 장씩 나눠주세요</div>
       <div class="exchange-slots">
-        ${slot("left", "다음 사람")}
+        ${slot("left", "오른쪽 사람")}
         ${slot("across", "파트너")}
-        ${slot("right", "이전 사람")}
+        ${slot("right", "왼쪽 사람")}
       </div>
       <div class="hand-cards" style="max-width:640px">${handHTML}</div>
       <button class="primary" id="submitExchange" ${submitted || staged.size !== 3 ? "disabled" : ""}>${submitted ? "제출 완료 — 대기 중" : "교환 확정"}</button>
@@ -297,7 +309,7 @@ function renderPlay() {
   const plays = lastPlay ? `<div class="mini-combo">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = state.requestedRank
-    ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">참새 요청: ${RANK_LABEL[state.requestedRank]} ${state.requestSatisfied ? "(이행됨)" : ""}</div>`
+    ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">콜 : ${RANK_LABEL[state.requestedRank]}${state.requestSatisfied ? " ✓" : ""}</div>`
     : "";
 
   const myHand = state.myHand || [];
@@ -309,6 +321,9 @@ function renderPlay() {
 
   const cancelVotes = state.cancelVotes || [];
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
+
+  const primaryLabel = selected.size > 0 ? "내기" : "패스";
+  const primaryEnabled = selected.size > 0 ? isMyTurn : (isMyTurn && !isLeading);
 
   app.innerHTML = `
     <div class="table-wrap">
@@ -340,11 +355,10 @@ function renderPlay() {
         <div class="status-line">${isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : `${seatLabel(state.turnSeat)}의 차례...`}</div>
         <div class="hand-actions">
           <button id="smallTichuBtn" class="ghost" ${canCallSmall ? "" : "disabled"}>스몰티츄 콜! (+100/-100)</button>
-          <button id="passBtn" ${isMyTurn && !isLeading ? "" : "disabled"}>패스</button>
         </div>
         <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
         <div class="hand-actions">
-          <button id="playBtn" class="primary" ${isMyTurn && selected.size > 0 ? "" : "disabled"}>내기</button>
+          <button id="primaryActionBtn" class="primary" ${primaryEnabled ? "" : "disabled"}>${primaryLabel}</button>
         </div>
       </div>
     </div>
@@ -359,16 +373,18 @@ function renderPlay() {
   document.querySelectorAll(".hand-cards .card").forEach((el) => {
     el.onclick = () => { const id = el.dataset.id; if (selected.has(id)) selected.delete(id); else selected.add(id); render(); };
   });
-  const playBtn = document.getElementById("playBtn");
-  if (playBtn) playBtn.onclick = () => {
-    const ids = Array.from(selected);
-    const cards = ids.map((id) => myHand.find((c) => c.id === id));
-    const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
-    if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
-    else submitPlay(ids, null);
+  const primaryBtn = document.getElementById("primaryActionBtn");
+  if (primaryBtn) primaryBtn.onclick = () => {
+    if (selected.size > 0) {
+      const ids = Array.from(selected);
+      const cards = ids.map((id) => myHand.find((c) => c.id === id));
+      const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
+      if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
+      else submitPlay(ids, null);
+    } else {
+      socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
+    }
   };
-  const passBtn = document.getElementById("passBtn");
-  if (passBtn) passBtn.onclick = () => socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
   const smallBtn = document.getElementById("smallTichuBtn");
   if (smallBtn) smallBtn.onclick = () => socket.emit("callTichu");
   const menuBtn = document.getElementById("menuBtn");
@@ -427,14 +443,20 @@ function openSparrowModal(onPick) {
 function openDragonModal() {
   if (document.querySelector(".modal-backdrop")) return;
   const myTeam = TEAM_OF_SEAT[mySeat];
+  const rightSeat = (mySeat + 1) % 4;
+  const leftSeat = (mySeat + 3) % 4;
   const opponents = [0,1,2,3].filter((s) => TEAM_OF_SEAT[s] !== myTeam);
+  const labelFor = (s) => {
+    const pos = s === rightSeat ? "오른쪽 사람" : s === leftSeat ? "왼쪽 사람" : "상대";
+    return `${pos} (${seatLabel(s)})`;
+  };
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal">
       <h3 class="accent" style="font-size:26px">용(龍)이 이겼습니다</h3>
       <div class="status-line">이 트릭의 카드를 상대팀 누구에게 줄까요?</div>
-      <div class="hand-actions">${opponents.map((s) => `<button data-s="${s}">${seatLabel(s)}</button>`).join("")}</div>
+      <div class="hand-actions">${opponents.map((s) => `<button data-s="${s}">${labelFor(s)}</button>`).join("")}</div>
     </div>`;
   document.body.appendChild(backdrop);
   backdrop.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => {
@@ -518,7 +540,48 @@ function renderAborted() {
   document.getElementById("backBtn").onclick = () => { localStorage.removeItem("tichu_room"); location.reload(); };
 }
 
-socket.on("state", (s) => { state = s; render(); });
+/* ---------------- 사운드 & 티츄 배경색 ---------------- */
+let audioCtx = null;
+function playCardSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "triangle";
+    o.frequency.value = 540;
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.17);
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
+let lastTrickPlayCount = 0;
+function checkPlaySound(newState) {
+  if (newState && newState.currentTrick) {
+    const n = newState.currentTrick.plays.length;
+    if (n > lastTrickPlayCount) playCardSound();
+    lastTrickPlayCount = n;
+  }
+}
+
+function applyTichuBackground(s) {
+  const anyLarge = s && s.tichuCalled && s.tichuCalled.some((t) => t === "large");
+  const anySmall = s && s.tichuCalled && s.tichuCalled.some((t) => t === "small");
+  document.body.classList.toggle("tichu-large-bg", !!anyLarge);
+  document.body.classList.toggle("tichu-small-bg", !anyLarge && !!anySmall);
+}
+
+socket.on("state", (s) => {
+  checkPlaySound(s);
+  state = s;
+  applyTichuBackground(s);
+  render();
+});
 socket.on("chatMessage", (m) => { chatMessages.push(m); if (chatOpen) render(); });
 socket.on("connect", () => render());
 
