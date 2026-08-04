@@ -118,8 +118,19 @@ input[type=text] {
 .mini-combo { display: flex; }
 .mini-combo .card { margin-left: -20px; }
 .mini-combo .card:first-child { margin-left: 0; }
+.mini-combo.play-anim { animation-duration: .38s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
+.mini-combo.play-anim.from-north { animation-name: playFromNorth; }
+.mini-combo.play-anim.from-south { animation-name: playFromSouth; }
+.mini-combo.play-anim.from-east { animation-name: playFromEast; }
+.mini-combo.play-anim.from-west { animation-name: playFromWest; }
+@keyframes playFromNorth { from { transform: translateY(-80px) scale(.8); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+@keyframes playFromSouth { from { transform: translateY(80px) scale(.8); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+@keyframes playFromEast  { from { transform: translateX(80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
+@keyframes playFromWest  { from { transform: translateX(-80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
 .trick-empty { color: var(--ivory-dim); font-size: 11px; letter-spacing: 1px; }
-.combo-label { font-size: 11px; color: var(--gold-soft); background: rgba(0,0,0,.25); padding: 2px 10px; border-radius: 8px; white-space: nowrap; }
+.combo-label { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 11px; color: var(--gold-soft); background: rgba(30,43,35,.08); padding: 3px 12px; border-radius: 8px; white-space: nowrap; }
+.combo-label .who { font-weight: 700; font-size: 11px; color: var(--ivory); }
+.combo-label .what { font-size: 10px; color: var(--gold-soft); }
 .requested-tag { position: absolute; top: 6px; right: 8px; background: rgba(30,43,35,.85); color: #f3e0a8; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
 .requested-tag.satisfied { background: rgba(47,143,107,.9); color: #eafff3; }
 
@@ -135,7 +146,7 @@ input[type=text] {
 .card.special-dog { background: linear-gradient(160deg, #eaf1ee, #cfe0d8); }
 .card.special-sparrow { background: linear-gradient(160deg, #e9f0f7, #c8d7e6); }
 .card .rank { font-size: 13px; }
-.card .suit { font-size: 16px; align-self: flex-end; }
+.card .suit { font-size: 16px; align-self: flex-end; margin-top: auto; }
 .card.small { width: 34px; height: 50px; padding: 3px 4px; font-size: 10px; }
 .card.small .rank { font-size: 10px; }
 .card.small .suit { font-size: 11px; }

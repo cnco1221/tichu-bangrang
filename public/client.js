@@ -43,21 +43,23 @@ function cardHTML(card, { small = false, isSelected = false } = {}) {
   }
   if (card.special === "dragon") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
-      <div class="rank">龍</div>
       <div class="center-icon">🐉</div>
       <div class="suit" style="color:#8a5a1a">용</div>
     </div>`;
   }
   if (card.special === "phoenix") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
-      <div class="rank">鳳</div>
       <div class="center-icon">🔥</div>
       <div class="suit" style="color:#a33b35">봉황</div>
     </div>`;
   }
-  let rankTxt, suitTxt, color;
-  if (card.special === "dog") { rankTxt = "狗"; suitTxt = "개"; color = "#3a6b57"; }
-  else { rankTxt = RANK_LABEL[card.rank]; suitTxt = SUIT_SYMBOL[card.suit]; color = SUIT_COLOR[card.suit]; }
+  if (card.special === "dog") {
+    return `<div class="${cls.join(" ")}" data-id="${card.id}">
+      <div class="center-icon">🐕</div>
+      <div class="suit" style="color:#3a6b57">개</div>
+    </div>`;
+  }
+  const rankTxt = RANK_LABEL[card.rank], suitTxt = SUIT_SYMBOL[card.suit], color = SUIT_COLOR[card.suit];
   return `<div class="${cls.join(" ")}" data-id="${card.id}">
     <div class="rank">${rankTxt}</div>
     <div class="suit" style="color:${color}">${suitTxt}</div>
@@ -229,9 +231,9 @@ function renderExchange() {
       <h2 class="accent" style="font-size:32px">카드 교환</h2>
       <div class="status-line">카드 3장을 골라 세 사람에게 한 장씩 나눠주세요</div>
       <div class="exchange-slots">
-        ${slot("left", "오른쪽 사람")}
-        ${slot("across", "파트너")}
         ${slot("right", "왼쪽 사람")}
+        ${slot("across", "파트너")}
+        ${slot("left", "오른쪽 사람")}
       </div>
       <div class="hand-cards" style="max-width:640px">${handHTML}</div>
       <button class="primary" id="submitExchange" ${submitted || staged.size !== 3 ? "disabled" : ""}>${submitted ? "제출 완료 — 대기 중" : "교환 확정"}</button>
@@ -298,6 +300,8 @@ function comboLabel(combo) {
   return "";
 }
 
+let animatedPlayKey = null;
+
 function renderPlay() {
   const viewerSeat = isSpectator ? 0 : mySeat; // 관전자는 임의 기준(회전 없음) - 좌석0을 남으로 고정
   const rightSeat = (viewerSeat + 1) % 4; // 동(상대)
@@ -306,7 +310,16 @@ function renderPlay() {
 
   const trick = state.currentTrick;
   const lastPlay = trick.plays.length > 0 ? trick.plays[trick.plays.length - 1] : null;
-  const plays = lastPlay ? `<div class="mini-combo">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+
+  let fromClass = "";
+  let isNewPlay = false;
+  if (lastPlay) {
+    const playKey = `${trick.plays.length}_${lastPlay.seat}_${lastPlay.cards.map((c) => c.id).join(",")}`;
+    isNewPlay = playKey !== animatedPlayKey;
+    animatedPlayKey = playKey;
+    fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
+  }
+  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = state.requestedRank
     ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">콜 : ${RANK_LABEL[state.requestedRank]}${state.requestSatisfied ? " ✓" : ""}</div>`
@@ -323,7 +336,8 @@ function renderPlay() {
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
 
   const primaryLabel = selected.size > 0 ? "내기" : "패스";
-  const primaryEnabled = selected.size > 0 ? isMyTurn : (isMyTurn && !isLeading);
+  const canAttemptPlay = !isSpectator && !state.finished[mySeat] && state.pendingDragonChoice === null;
+  const primaryEnabled = selected.size > 0 ? canAttemptPlay : (isMyTurn && !isLeading);
 
   app.innerHTML = `
     <div class="table-wrap">
@@ -346,7 +360,7 @@ function renderPlay() {
         <div class="seat-center trick-area">
           ${requestedTag}
           <div class="trick-plays">${plays || `<div class="trick-empty">${isLeading ? "리드를 기다리는 중" : ""}</div>`}</div>
-          ${lastPlay ? `<div class="combo-label">${seatLabel(lastPlay.seat)} · ${comboLabelText}</div>` : ""}
+          ${lastPlay ? `<div class="combo-label"><div class="who">${seatLabel(lastPlay.seat)}</div><div class="what">${comboLabelText}</div></div>` : ""}
         </div>
         ${seatBoxHTML(rightSeat, "seat-east", "상대")}
         ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
@@ -445,7 +459,7 @@ function openDragonModal() {
   const myTeam = TEAM_OF_SEAT[mySeat];
   const rightSeat = (mySeat + 1) % 4;
   const leftSeat = (mySeat + 3) % 4;
-  const opponents = [0,1,2,3].filter((s) => TEAM_OF_SEAT[s] !== myTeam);
+  const orderedOpponents = [leftSeat, rightSeat]; // 왼쪽 사람 버튼이 왼쪽에, 오른쪽 사람 버튼이 오른쪽에 오도록 순서 고정
   const labelFor = (s) => {
     const pos = s === rightSeat ? "오른쪽 사람" : s === leftSeat ? "왼쪽 사람" : "상대";
     return `${pos} (${seatLabel(s)})`;
@@ -456,7 +470,7 @@ function openDragonModal() {
     <div class="modal">
       <h3 class="accent" style="font-size:26px">용(龍)이 이겼습니다</h3>
       <div class="status-line">이 트릭의 카드를 상대팀 누구에게 줄까요?</div>
-      <div class="hand-actions">${opponents.map((s) => `<button data-s="${s}">${labelFor(s)}</button>`).join("")}</div>
+      <div class="hand-actions">${orderedOpponents.map((s) => `<button data-s="${s}">${labelFor(s)}</button>`).join("")}</div>
     </div>`;
   document.body.appendChild(backdrop);
   backdrop.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => {
