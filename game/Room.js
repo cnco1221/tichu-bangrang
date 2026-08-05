@@ -26,6 +26,7 @@ class Room {
     this.turnDeadline = null;
     this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
     this.actionSeq = 0;
+    this.fixedSeats = false; // true면 게임 시작 시 좌석을 섞지 않고 그대로 시작
     this.resetHandState();
   }
 
@@ -113,10 +114,44 @@ class Room {
     this.players[seat].ready = !!ready;
   }
 
+  switchToSpectator(seat) {
+    if (this.phase !== "lobby") return false;
+    const p = this.players[seat];
+    if (!p) return false;
+    this.players[seat] = null;
+    this.spectators.push({ socketId: p.socketId, name: p.name });
+    return true;
+  }
+
+  swapSeats(seatA, seatB) {
+    if (this.phase !== "lobby") return false;
+    if (seatA === seatB) return false;
+    if (!this.players[seatA] || !this.players[seatB]) return false;
+    const tmp = this.players[seatA];
+    this.players[seatA] = this.players[seatB];
+    this.players[seatB] = tmp;
+    return true;
+  }
+
+  setFixedSeats(enabled) {
+    if (this.phase !== "lobby") return;
+    this.fixedSeats = !!enabled;
+  }
+
+  _shuffleSeats() {
+    const arr = this.players.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    this.players = arr;
+  }
+
   /* ---------------- 게임 시작 ---------------- */
 
   startGame() {
     if (!this.isFull() || !this.players.every((p) => p.ready)) return false;
+    if (!this.fixedSeats) this._shuffleSeats(); // 지정석이 꺼져있으면 시작할 때 좌석(팀)을 무작위로 섞음
     this.teamScores = [0, 0];
     for (const p of this.players) p.abandonCount = 0;
     this.cancelVotes.clear();
@@ -553,9 +588,21 @@ class Room {
       const seat = this.exchangeSubmit.findIndex((e, i) => !e && this.isBot(i));
       if (seat !== -1) {
         const hand = this.hands[seat];
-        const nonSpecial = hand.filter((c) => !c.special);
-        const pick = (nonSpecial.length >= 3 ? nonSpecial : hand).slice(0, 3);
-        this.submitExchange(seat, { left: pick[0].id, across: pick[1].id, right: pick[2].id });
+        const giveRank = (c) => {
+          if (c.special === "dragon") return 1000;
+          if (c.special === "phoenix") return 999;
+          if (c.special === "sparrow") return 0.5;
+          if (c.special === "dog") return -1;
+          return c.rank;
+        };
+        // 파트너에게는 항상 가장 높은 패(용>봉황>A>K>...)를 줌
+        const byHighest = hand.slice().sort((a, b) => giveRank(b) - giveRank(a));
+        const partnerCard = byHighest[0];
+        const rest = hand.filter((c) => c.id !== partnerCard.id);
+        const restLowFirst = rest.slice().sort((a, b) => giveRank(a) - giveRank(b));
+        const nonSpecialRest = restLowFirst.filter((c) => !c.special);
+        const pickForOpponents = (nonSpecialRest.length >= 2 ? nonSpecialRest : restLowFirst).slice(0, 2);
+        this.submitExchange(seat, { left: pickForOpponents[0].id, across: partnerCard.id, right: pickForOpponents[1].id });
         return true;
       }
     }
@@ -644,6 +691,7 @@ class Room {
       lastAction: this.lastAction,
       actionSeq: this.actionSeq,
       lastDragonGift: this.lastDragonGift,
+      fixedSeats: this.fixedSeats,
     };
   }
 }
