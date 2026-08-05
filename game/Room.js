@@ -49,6 +49,7 @@ class Room {
     this.requestedRank = null;
     this.requestSatisfied = true;
     this.lastDragonGift = null; // { from, to } - 용으로 이긴 트릭을 누구에게 줬는지(보드 표시용)
+    this._clearExchangeTimer();
     this._clearTimer();
   }
 
@@ -188,7 +189,31 @@ class Room {
     if (this.grandDecision.every((d) => d !== null)) {
       this.hands = this._full14.map((h) => sortHand(h));
       this.phase = "exchange";
+      this._armExchangeTimer();
     }
+  }
+
+  _armExchangeTimer() {
+    this._clearExchangeTimer();
+    this.exchangeDeadline = Date.now() + 30000;
+    const room = this;
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
+  }
+
+  _clearExchangeTimer() {
+    if (this._exchangeTimer) clearTimeout(this._exchangeTimer);
+    this._exchangeTimer = null;
+    this.exchangeDeadline = null;
+  }
+
+  _onExchangeTimeout() {
+    if (this.phase !== "exchange") return;
+    for (let s = 0; s < 4; s++) {
+      if (this.phase !== "exchange") break; // 도중에 전원 제출 완료되어 resolve됐으면 중단
+      if (this.exchangeSubmit[s]) continue;
+      this.submitExchange(s, this._autoExchangePicks(s));
+    }
+    this.notify(this.code);
   }
 
   submitExchange(seat, { left, across, right }) {
@@ -202,6 +227,7 @@ class Room {
   }
 
   _resolveExchange() {
+    this._clearExchangeTimer();
     const takeOut = (seat, id) => {
       const hand = this.hands[seat];
       const idx = hand.findIndex((c) => c.id === id);
@@ -599,6 +625,26 @@ class Room {
 
   /* ---------------- 규칙 기반 봇 ---------------- */
 
+  // 파트너에게는 항상 최고패(용>봉황>A>K>...), 상대에게는 낮은 패를 자동으로 고름
+  // (봇 교환 및 교환 타임아웃 자동제출 둘 다 여기서 공유)
+  _autoExchangePicks(seat) {
+    const hand = this.hands[seat];
+    const giveRank = (c) => {
+      if (c.special === "dragon") return 1000;
+      if (c.special === "phoenix") return 999;
+      if (c.special === "sparrow") return 0.5;
+      if (c.special === "dog") return -1;
+      return c.rank;
+    };
+    const byHighest = hand.slice().sort((a, b) => giveRank(b) - giveRank(a));
+    const partnerCard = byHighest[0];
+    const rest = hand.filter((c) => c.id !== partnerCard.id);
+    const restLowFirst = rest.slice().sort((a, b) => giveRank(a) - giveRank(b));
+    const nonSpecialRest = restLowFirst.filter((c) => !c.special);
+    const pickForOpponents = (nonSpecialRest.length >= 2 ? nonSpecialRest : restLowFirst).slice(0, 2);
+    return { left: pickForOpponents[0].id, across: partnerCard.id, right: pickForOpponents[1].id };
+  }
+
   botAct() {
     if (this.phase === "grand") {
       const seat = this.grandDecision.findIndex((d, i) => d === null && this.isBot(i));
@@ -607,22 +653,7 @@ class Room {
     if (this.phase === "exchange") {
       const seat = this.exchangeSubmit.findIndex((e, i) => !e && this.isBot(i));
       if (seat !== -1) {
-        const hand = this.hands[seat];
-        const giveRank = (c) => {
-          if (c.special === "dragon") return 1000;
-          if (c.special === "phoenix") return 999;
-          if (c.special === "sparrow") return 0.5;
-          if (c.special === "dog") return -1;
-          return c.rank;
-        };
-        // 파트너에게는 항상 가장 높은 패(용>봉황>A>K>...)를 줌
-        const byHighest = hand.slice().sort((a, b) => giveRank(b) - giveRank(a));
-        const partnerCard = byHighest[0];
-        const rest = hand.filter((c) => c.id !== partnerCard.id);
-        const restLowFirst = rest.slice().sort((a, b) => giveRank(a) - giveRank(b));
-        const nonSpecialRest = restLowFirst.filter((c) => !c.special);
-        const pickForOpponents = (nonSpecialRest.length >= 2 ? nonSpecialRest : restLowFirst).slice(0, 2);
-        this.submitExchange(seat, { left: pickForOpponents[0].id, across: partnerCard.id, right: pickForOpponents[1].id });
+        this.submitExchange(seat, this._autoExchangePicks(seat));
         return true;
       }
     }
@@ -700,6 +731,7 @@ class Room {
       requestSatisfied: this.requestSatisfied,
       turnSeat: this.turnSeat,
       turnDeadline: this.turnDeadline,
+      exchangeDeadline: this.exchangeDeadline,
       finished: this.finished,
       finishOrder: this.finishOrder,
       pendingDragonChoice: this.pendingDragonChoice,
