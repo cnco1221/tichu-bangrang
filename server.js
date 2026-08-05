@@ -27,14 +27,16 @@ function broadcast(code) {
   if (!room) return;
   for (const p of room.players) {
     if (!p || p.isBot) continue;
-    io.to(p.socketId).emit("state", room.getStateFor(room.seatBySocket(p.socketId), false));
+    const seat = room.seatBySocket(p.socketId);
+    io.to(p.socketId).emit("yourSeat", { seat }); // 좌석 셔플/스왑 후에도 클라이언트가 자기 좌석을 정확히 알도록 매번 동기화
+    io.to(p.socketId).emit("state", room.getStateFor(seat, false));
   }
   for (const s of room.spectators) {
     io.to(s.socketId).emit("state", room.getStateFor(null, true));
   }
 }
 
-function runBots(code, delay = 700) {
+function runBots(code, delay = 1300) {
   const room = rooms.get(code);
   if (!room) return;
   const acted = room.botAct();
@@ -90,6 +92,31 @@ io.on("connection", (socket) => {
     if (!room) return;
     const seat = room.takeEmptySeat(socket.id, "");
     cb && cb({ ok: seat !== null, seat });
+    broadcast(code);
+  });
+
+  socket.on("switchToSpectator", (_, cb) => {
+    const { room, seat, code } = getRoomSeat(socket);
+    if (!room || seat === -1) return cb && cb({ error: "자리에 앉아있지 않아요" });
+    const ok = room.switchToSpectator(seat);
+    if (!ok) return cb && cb({ error: "지금은 관전으로 바꿀 수 없어요(게임 중)" });
+    cb && cb({ ok: true });
+    broadcast(code);
+  });
+
+  socket.on("swapSeat", ({ targetSeat }, cb) => {
+    const { room, seat, code } = getRoomSeat(socket);
+    if (!room || seat === -1) return cb && cb({ error: "먼저 자리에 앉아야 해요" });
+    const ok = room.swapSeats(seat, targetSeat);
+    if (!ok) return cb && cb({ error: "자리를 바꿀 수 없어요" });
+    cb && cb({ ok: true });
+    broadcast(code);
+  });
+
+  socket.on("setFixedSeats", ({ enabled }) => {
+    const { room, seat, code } = getRoomSeat(socket);
+    if (!room || seat === -1) return;
+    room.setFixedSeats(enabled);
     broadcast(code);
   });
 
