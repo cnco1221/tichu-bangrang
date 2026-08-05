@@ -69,6 +69,7 @@ function cardHTML(card, { small = false, isSelected = false, isPicking = false }
 }
 
 function render() {
+  document.querySelectorAll(".chat-bubble-overlay").forEach((el) => el.remove());
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (!state) return renderLanding();
   if (state.phase === "lobby") return renderLobby();
@@ -145,6 +146,7 @@ function renderLobby() {
   const myReady = mySeat !== null && state.players[mySeat] ? state.players[mySeat].ready : false;
   const hasEmptySeat = !state.players.every((p) => p !== null);
   const canJoinSeat = isSpectator && hasEmptySeat;
+  const canSwap = !isSpectator && state.players.some((p, i) => p && !p.isBot && i !== mySeat);
 
   app.innerHTML = `
     <div class="lobby">
@@ -152,13 +154,19 @@ function renderLobby() {
       <div class="room-code">${state.code}</div>
       <div class="seat-grid">${seats}</div>
       ${!isSpectator ? `<button class="primary" id="readyBtn">${myReady ? "준비 취소" : "준비 완료"}</button>` : ""}
-      ${hasEmptySeat ? `<button id="addBotBtn">봇 추가</button>` : ""}
-      ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
+      <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
+        ${hasEmptySeat ? `<button id="addBotBtn">봇 추가</button>` : ""}
+        ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
+        ${!isSpectator ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
+        ${canSwap ? `<button id="swapSeatBtn" class="ghost">자리 바꾸기</button>` : ""}
+      </div>
       <div class="spectator-bar">
         <div class="chip">관전자 ${state.spectatorCount}명</div>
         ${state.spectatorCount > 0 ? `<button class="small" id="showSpecBtn">누구인지 보기</button>` : ""}
+        <div class="chip">지정석 ${state.fixedSeats ? "켜짐" : "꺼짐"}</div>
+        ${!isSpectator ? `<button class="small" id="fixedSeatBtn">지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
       </div>
-      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)</div>
+      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요"}</div>
     </div>
   `;
   const readyBtn = document.getElementById("readyBtn");
@@ -167,9 +175,32 @@ function renderLobby() {
   if (addBotBtn) addBotBtn.onclick = () => socket.emit("addBot", null, (res) => { if (res && res.error) showToast(res.error); });
   const takeSeatBtn = document.getElementById("takeSeatBtn");
   if (takeSeatBtn) takeSeatBtn.onclick = () => socket.emit("takeSeat", null, (res) => {
-    if (res && res.ok) { mySeat = res.seat; isSpectator = false; }
+    if (res && res.ok) { mySeat = res.seat; isSpectator = false; render(); }
     else showToast("빈 자리가 없어요");
   });
+  const toSpectatorBtn = document.getElementById("toSpectatorBtn");
+  if (toSpectatorBtn) toSpectatorBtn.onclick = () => socket.emit("switchToSpectator", null, (res) => {
+    if (res && res.ok) { isSpectator = true; mySeat = null; render(); }
+    else if (res && res.error) showToast(res.error);
+  });
+  const swapSeatBtn = document.getElementById("swapSeatBtn");
+  if (swapSeatBtn) swapSeatBtn.onclick = () => {
+    const others = state.players.map((p, i) => (p && !p.isBot && i !== mySeat ? { seat: i, name: p.name } : null)).filter(Boolean);
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `<div class="modal"><h3>자리 바꾸기</h3>
+      <div class="status-line">바꿀 상대를 선택하세요</div>
+      <div class="hand-actions" style="flex-wrap:wrap;">${others.map((o) => `<button data-s="${o.seat}">${o.name} (좌석${o.seat + 1})</button>`).join("")}</div>
+      <button id="cancelSwap" class="ghost">취소</button></div>`;
+    document.body.appendChild(backdrop);
+    backdrop.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => {
+      socket.emit("swapSeat", { targetSeat: Number(b.dataset.s) }, (res) => { if (res && res.error) showToast(res.error); });
+      backdrop.remove();
+    });
+    document.getElementById("cancelSwap").onclick = () => backdrop.remove();
+  };
+  const fixedSeatBtn = document.getElementById("fixedSeatBtn");
+  if (fixedSeatBtn) fixedSeatBtn.onclick = () => socket.emit("setFixedSeats", { enabled: !state.fixedSeats });
   const showSpecBtn = document.getElementById("showSpecBtn");
   if (showSpecBtn) showSpecBtn.onclick = () => {
     const backdrop = document.createElement("div");
@@ -304,7 +335,7 @@ function seatBoxHTML(seat, posClass, role) {
   const count = state.handCounts[seat];
   const connected = state.players[seat] && state.players[seat].connected;
   const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat);
-  return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}">
+  return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
     ${hasPassed ? `<div class="pass-tag">패스</div>` : ""}
@@ -377,11 +408,11 @@ function renderPlay() {
   }
   const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length > 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
-  const requestedTag = state.requestedRank
-    ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">콜 : ${RANK_LABEL[state.requestedRank]}${state.requestSatisfied ? " ✓" : ""}</div>`
+  const requestedTag = (state.requestedRank && !state.requestSatisfied)
+    ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
     : "";
   const dragonGiftTag = state.lastDragonGift
-    ? `<div class="dragon-gift-tag">龍 → ${seatLabel(state.lastDragonGift.to)}</div>`
+    ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
 
   const myHand = state.myHand || [];
@@ -477,7 +508,23 @@ function renderPlay() {
 
   if (state.pendingDragonChoice === mySeat) openDragonModal();
 
+  renderChatBubbles();
   startTimerTick();
+}
+
+function renderChatBubbles() {
+  Object.keys(chatBubbles).forEach((seatStr) => {
+    const seat = Number(seatStr);
+    const boxEl = document.querySelector(`.seat-box[data-seat="${seat}"]`);
+    if (!boxEl) return;
+    const rect = boxEl.getBoundingClientRect();
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble-overlay";
+    bubble.textContent = chatBubbles[seat].text;
+    bubble.style.left = `${rect.left + rect.width / 2}px`;
+    bubble.style.top = `${rect.top - 6}px`;
+    document.body.appendChild(bubble);
+  });
 }
 
 function startTimerTick() {
@@ -545,7 +592,7 @@ function openDragonModal() {
 function renderChatPanel() {
   return `<div class="chat-panel">
     <div class="chat-messages" id="chatMessages">
-      ${chatMessages.map((m) => `<div class="msg"><span class="who">${m.name || "?"}</span>${m.text}</div>`).join("")}
+      ${chatMessages.map((m) => `<div class="msg"><span class="who">${escapeHtml(m.name || "?")}</span>${escapeHtml(m.text)}</div>`).join("")}
     </div>
     <div class="chat-input-row">
       <input type="text" id="chatInput" maxlength="200" placeholder="메시지 입력..." />
@@ -684,6 +731,12 @@ function applyTichuBackground(s) {
 let exchangeSummaryData = null;
 let exchangeSummaryVisible = false;
 
+let chatBubbles = {}; // seat -> { text, id }
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
 socket.on("state", (s) => {
   checkPlaySound(s);
   checkActionEvents(s);
@@ -700,7 +753,23 @@ socket.on("state", (s) => {
   applyTichuBackground(s);
   render();
 });
-socket.on("chatMessage", (m) => { chatMessages.push(m); if (chatOpen) render(); });
+socket.on("yourSeat", ({ seat }) => {
+  if (!isSpectator && seat !== -1 && mySeat !== seat) { mySeat = seat; render(); }
+});
+socket.on("chatMessage", (m) => {
+  chatMessages.push(m);
+  if (m.seat !== null && m.seat !== undefined && m.seat !== -1) {
+    const bubbleId = Symbol();
+    chatBubbles[m.seat] = { text: m.text, id: bubbleId };
+    setTimeout(() => {
+      if (chatBubbles[m.seat] && chatBubbles[m.seat].id === bubbleId) {
+        delete chatBubbles[m.seat];
+        render();
+      }
+    }, 4000);
+  }
+  render(); // 채팅창이 닫혀있어도 말풍선 갱신을 위해 항상 리렌더
+});
 socket.on("connect", () => render());
 
 render();

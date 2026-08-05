@@ -116,6 +116,14 @@ input[type=text] {
   padding: 3px 9px; border-radius: 10px; white-space: nowrap;
 }
 
+.chat-bubble-overlay {
+  position: fixed; transform: translate(-50%, -100%); z-index: 200;
+  background: var(--panel); border: 1px solid var(--gold); color: var(--ivory);
+  font-size: 11px; padding: 5px 10px; border-radius: 10px; max-width: 150px;
+  text-align: center; word-break: break-word; box-shadow: 0 3px 8px rgba(0,0,0,.25);
+  pointer-events: none;
+}
+
 .seat-north { grid-column: 2; grid-row: 1; }
 .seat-west  { grid-column: 1; grid-row: 2; }
 .seat-center{ grid-column: 2; grid-row: 2; }
@@ -147,7 +155,6 @@ input[type=text] {
 .combo-label .who { font-weight: 700; font-size: 11px; color: var(--ivory); }
 .combo-label .what { font-size: 10px; color: var(--gold-soft); }
 .requested-tag { position: absolute; top: 6px; right: 8px; background: rgba(30,43,35,.85); color: #f3e0a8; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
-.requested-tag.satisfied { background: rgba(47,143,107,.9); color: #eafff3; }
 
 /* card */
 .card {
