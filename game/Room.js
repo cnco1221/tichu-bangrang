@@ -196,9 +196,9 @@ class Room {
 
   _armExchangeTimer() {
     this._clearExchangeTimer();
-    this.exchangeDeadline = Date.now() + 30000;
+    this.exchangeDeadline = Date.now() + 60000;
     const room = this;
-    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 60000);
   }
 
   _clearExchangeTimer() {
