@@ -27,6 +27,7 @@ class Room {
     this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
     this.actionSeq = 0;
     this.fixedSeats = false; // true면 게임 시작 시 좌석을 섞지 않고 그대로 시작
+    this.roundHistory = []; // [{ round, teamPoints: {0,1} }, ...] - 라운드별 점수 기록(게임 전체 기준)
     this.EXCHANGE_SUMMARY_DELAY_MS = 3200; // 교환 완료 후 실제 플레이 시작까지 대기(클라 요약화면과 맞춤). 테스트에서 0으로 낮춰 씀
     this.resetHandState();
   }
@@ -167,6 +168,7 @@ class Room {
     if (!this.isFull() || !this.players.every((p) => p.ready)) return false;
     if (!this.fixedSeats) this._shuffleSeats(); // 지정석이 꺼져있으면 시작할 때 좌석(팀)을 무작위로 섞음
     this.teamScores = [0, 0];
+    this.roundHistory = [];
     for (const p of this.players) p.abandonCount = 0;
     this.cancelVotes.clear();
     this.abortReason = null;
@@ -196,9 +198,9 @@ class Room {
 
   _armExchangeTimer() {
     this._clearExchangeTimer();
-    this.exchangeDeadline = Date.now() + 60000;
+    this.exchangeDeadline = Date.now() + 30000;
     const room = this;
-    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 60000);
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
   }
 
   _clearExchangeTimer() {
@@ -316,7 +318,8 @@ class Room {
       if (isLeading) {
         combo.power = 1.5;
       } else if (this.currentTrick.lastCombo.type === "single") {
-        combo.power = this.currentTrick.lastCombo.power + 0.5;
+        // 용(200) 다음에 나와도 봉황이 용을 이길 수는 없어야 하므로 199로 상한을 둠
+        combo.power = Math.min(this.currentTrick.lastCombo.power + 0.5, 199);
       }
     }
 
@@ -561,6 +564,7 @@ class Room {
     this.teamScores[0] += teamPoints[0];
     this.teamScores[1] += teamPoints[1];
     this.lastHandSummary = { teamPoints, bonuses, doubleWin: this.doubleWin, finishOrder: this.finishOrder.slice() };
+    this.roundHistory.push({ round: this.roundHistory.length + 1, teamPoints: { 0: teamPoints[0], 1: teamPoints[1] } });
 
     if (this.teamScores[0] >= TARGET_SCORE || this.teamScores[1] >= TARGET_SCORE) {
       this.phase = "gameover";
@@ -768,6 +772,7 @@ class Room {
       actionSeq: this.actionSeq,
       lastDragonGift: this.lastDragonGift,
       fixedSeats: this.fixedSeats,
+      roundHistory: this.roundHistory,
     };
   }
 }

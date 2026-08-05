@@ -57,11 +57,13 @@ function classify(cards) {
     return null;
   }
 
-  // 4장: 봄(포카드)
+  // 4장: 봄(포카드) 또는 연속페어(계단) 2쌍
   if (cards.length === 4) {
     if (!hasSparrow && !hasPhoenix && uniqueRanks.length === 1) {
       return { type: "bomb4", len: 4, power: uniqueRanks[0], hasPhoenix: false, cards, isBomb: true };
     }
+    const ps4 = tryPairSequence(cards, uniqueRanks, counts, hasPhoenix, hasSparrow);
+    if (ps4) return ps4;
     return null;
   }
 
@@ -96,6 +98,11 @@ function tryFullHouse(cards, uniqueRanks, counts, hasPhoenix, hasSparrow) {
         const triple = ca === 3 ? a : b;
         return { type: "fullhouse", len: 5, power: triple, hasPhoenix: true, cards };
       }
+      if (ca === 2 && cb === 2) {
+        // 페어 두 개 + 봉황: 봉황이 트리플을 완성함 -> 유리한 쪽(더 높은 랭크)을 트리플로 인정
+        const triple = Math.max(a, b);
+        return { type: "fullhouse", len: 5, power: triple, hasPhoenix: true, cards };
+      }
     }
     return null;
   }
@@ -114,24 +121,34 @@ function tryStraight(cards, hasPhoenix, hasSparrow) {
   const nonPhoenix = cards.filter((c) => !isSpecial(c, "phoenix"));
   const ranks = nonPhoenix.map((c) => (isSpecial(c, "sparrow") ? 1 : c.rank));
   const uniq = Array.from(new Set(ranks)).sort((a, b) => a - b);
-  if (uniq.length !== ranks.length) return null;
+  if (uniq.length !== ranks.length) return null; // 중복 랭크 있으면 스트레이트 아님
 
+  if (!hasPhoenix) {
+    const minR = uniq[0];
+    const maxR = uniq[uniq.length - 1];
+    if (maxR - minR + 1 !== len) return null; // 완전히 연속이어야 함
+    const suits = new Set(nonPhoenix.map((c) => c.suit));
+    if (suits.size === 1) return { type: "bombStraight", len, power: maxR, hasPhoenix: false, cards, isBomb: true };
+    return { type: "straight", len, power: maxR, hasPhoenix: false, cards };
+  }
+
+  // 봉황 1장 포함: 나머지 카드들은 서로 중복 없이 len-1장이어야 하고,
+  // 그 범위 안의 빈 칸이 정확히 1개(봉황이 채움)이거나, 이미 완전히 연속이면 봉황이 위/아래로 한 칸 확장함
+  if (uniq.length !== len - 1) return null;
   const minR = uniq[0];
   const maxR = uniq[uniq.length - 1];
-  const span = maxR - minR + 1;
-  if (span !== len) return null;
-  let gaps = 0;
-  for (let r = minR; r <= maxR; r++) if (!uniq.includes(r)) gaps++;
-  const neededWild = hasPhoenix ? 1 : 0;
-  if (gaps !== neededWild) return null;
+  const knownSpan = maxR - minR + 1;
+  const gapsInside = knownSpan - uniq.length;
 
-  const suits = new Set(nonPhoenix.map((c) => c.suit));
-  const isFlush = suits.size === 1 && !hasPhoenix;
-  const power = maxR;
-  if (isFlush) {
-    return { type: "bombStraight", len, power, hasPhoenix: false, cards, isBomb: true };
+  if (gapsInside === 1) {
+    return { type: "straight", len, power: maxR, hasPhoenix: true, cards };
   }
-  return { type: "straight", len, power, hasPhoenix, cards };
+  if (gapsInside === 0) {
+    if (maxR < 14) return { type: "straight", len, power: maxR + 1, hasPhoenix: true, cards }; // 위로 확장(유리한 쪽)
+    if (minR > 1) return { type: "straight", len, power: maxR, hasPhoenix: true, cards }; // 위로 못 가면 아래로 확장
+    return null;
+  }
+  return null; // 빈 칸이 2개 이상이면 봉황 한 장으로는 못 채움
 }
 
 function tryPairSequence(cards, uniqueRanks, counts, hasPhoenix, hasSparrow) {
