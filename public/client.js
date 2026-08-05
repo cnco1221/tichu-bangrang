@@ -313,6 +313,23 @@ function seatBoxHTML(seat, posClass, role) {
   </div>`;
 }
 
+function isLikelyBomb(cards) {
+  if (!cards || cards.length === 0) return false;
+  if (cards.some((c) => c.special)) return false; // 봄에는 특수카드(참새/봉황/용/개) 포함 불가
+  if (cards.length === 4) {
+    return new Set(cards.map((c) => c.rank)).size === 1; // 포카드
+  }
+  if (cards.length >= 5) {
+    const suits = new Set(cards.map((c) => c.suit));
+    if (suits.size !== 1) return false;
+    const ranks = cards.map((c) => c.rank).sort((a, b) => a - b);
+    if (new Set(ranks).size !== ranks.length) return false;
+    for (let i = 1; i < ranks.length; i++) if (ranks[i] !== ranks[i - 1] + 1) return false;
+    return true; // 스트레이트 플러시 봄
+  }
+  return false;
+}
+
 function comboLabel(combo) {
   if (!combo) return "";
   if (combo.type === "dog") return "개";
@@ -369,7 +386,9 @@ function renderPlay() {
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
 
   const primaryLabel = selected.size > 0 ? "내기" : "패스";
-  const canAttemptPlay = !isSpectator && !state.finished[mySeat] && state.pendingDragonChoice === null;
+  const selectedCards = Array.from(selected).map((id) => myHand.find((c) => c.id === id)).filter(Boolean);
+  const selectedIsBomb = selectedCards.length > 0 && isLikelyBomb(selectedCards);
+  const canAttemptPlay = !isSpectator && !state.finished[mySeat] && state.pendingDragonChoice === null && (isMyTurn || selectedIsBomb);
   const primaryEnabled = selected.size > 0 ? canAttemptPlay : (isMyTurn && !isLeading);
 
   app.innerHTML = `
@@ -399,7 +418,7 @@ function renderPlay() {
         ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
       </div>
       <div class="hand-wrap">
-        <div class="status-line">${isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : `${seatLabel(state.turnSeat)}의 차례...`}</div>
+        <div class="status-line">${isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`)}</div>
         <div class="hand-actions">
           <button id="smallTichuBtn" class="ghost" ${canCallSmall ? "" : "disabled"}>스몰티츄 콜! (+100/-100)</button>
         </div>
