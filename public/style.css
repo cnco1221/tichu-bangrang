@@ -143,7 +143,7 @@ input[type=text] {
 .mini-combo .card .suit { font-size: 10px; }
 .mini-combo .card .center-icon { font-size: 11px; }
 .mini-combo .card.special-sparrow .corner-tl, .mini-combo .card.special-sparrow .corner-br { font-size: 7px; }
-.mini-combo.play-anim { animation-duration: .38s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
+.mini-combo.play-anim { animation-duration: .8s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
 .mini-combo.play-anim.from-north { animation-name: playFromNorth; }
 .mini-combo.play-anim.from-south { animation-name: playFromSouth; }
 .mini-combo.play-anim.from-east { animation-name: playFromEast; }

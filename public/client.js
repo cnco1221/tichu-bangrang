@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.02"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.04"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -88,6 +88,7 @@ function cardHTML(card, { small = false, isSelected = false, isPicking = false }
 function render() {
   document.querySelectorAll(".chat-bubble-overlay").forEach((el) => el.remove());
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
+  if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
   if (!state) return renderLanding();
   if (state.phase === "lobby") return renderLobby();
   if (state.phase === "grand") return renderGrand();
@@ -316,6 +317,7 @@ function renderExchange() {
     <div class="lobby">
       <h2 class="accent" style="font-size:32px">카드 교환</h2>
       <div class="status-line">카드를 탭해서 고른 다음, 줄 사람 칸을 탭하세요</div>
+      <div class="chip" id="exchangeTimerChip"></div>
       <div class="exchange-slots">
         ${slot("right", "왼쪽 사람")}
         ${slot("across", "파트너")}
@@ -326,6 +328,7 @@ function renderExchange() {
       ${waitingOn.length ? `<div class="chip">대기: ${waitingOn.join(", ")}</div>` : ""}
     </div>
   `;
+  startExchangeTimerTick();
 
   if (!submitted) {
     document.querySelectorAll(".hand-cards .card").forEach((el) => {
@@ -594,6 +597,20 @@ function startTimerTick() {
   };
   tick();
   timerTickHandle = setInterval(tick, 1000);
+}
+
+let exchangeTimerTickHandle = null;
+function startExchangeTimerTick() {
+  if (exchangeTimerTickHandle) clearInterval(exchangeTimerTickHandle);
+  const tick = () => {
+    const chip = document.getElementById("exchangeTimerChip");
+    if (!chip || !state || state.phase !== "exchange") return;
+    if (!state.exchangeDeadline) { chip.textContent = ""; return; }
+    const remain = Math.max(0, Math.ceil((state.exchangeDeadline - Date.now()) / 1000));
+    chip.textContent = `남은 시간 ${remain}초`;
+  };
+  tick();
+  exchangeTimerTickHandle = setInterval(tick, 1000);
 }
 
 function submitPlay(ids, requestRank) {
