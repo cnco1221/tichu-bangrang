@@ -1,5 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
+const APP_VERSION = "0.01"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -13,6 +14,9 @@ let toastTimer = null;
 let menuOpen = false;
 let chatOpen = false;
 let chatMessages = [];
+let globalChatOpen = false;
+let globalChatMessages = [];
+let confirmPending = {}; // key -> timeoutId, 라지/스몰티츄 2번 눌러야 확정되는 데 씀
 let timerTickHandle = null;
 
 const RANK_LABEL = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A" };
@@ -27,6 +31,19 @@ function showToast(msg) {
   if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); }
   el.textContent = msg;
   toastTimer = setTimeout(() => el.remove(), 2600);
+}
+
+// 2번 눌러야 확정되는 버튼(라지/스몰티츄) 공용 헬퍼. 처음 누르면 대기 상태로 바뀌고,
+// 3초 안에 다시 누르면 실제 액션 실행. 3초 지나면 대기 상태가 풀림.
+function handleDoubleConfirm(key, action) {
+  if (confirmPending[key]) {
+    clearTimeout(confirmPending[key]);
+    delete confirmPending[key];
+    action();
+  } else {
+    confirmPending[key] = setTimeout(() => { delete confirmPending[key]; render(); }, 3000);
+  }
+  render();
 }
 
 function cardHTML(card, { small = false, isSelected = false, isPicking = false } = {}) {
@@ -107,8 +124,25 @@ function renderLanding() {
           <button type="button" id="spectateBtn">관전하기</button>
         </div>
       </form>
+      <div class="room-list-wrap">
+        <div class="room-list-header">
+          <span>열려있는 방 (${openRooms.length})</span>
+          <button class="small ghost" id="refreshRoomsBtn">새로고침</button>
+        </div>
+        <div class="room-list">
+          ${openRooms.length
+            ? openRooms.map((r) => `<button class="room-list-item" data-code="${r.code}">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}</button>`).join("")
+            : `<div class="hint">참가 가능한 방이 없어요</div>`}
+        </div>
+      </div>
     </div>
+    <div class="version-badge">v${APP_VERSION}</div>
+    <button class="chat-fab icon-btn" id="globalChatFab">💬</button>
+    ${globalChatOpen ? renderGlobalChatPanel() : ""}
   `;
+  if (!roomListFetched) { roomListFetched = true; fetchRoomList(true); }
+  document.getElementById("globalChatFab").onclick = () => { globalChatOpen = !globalChatOpen; render(); };
+  wireGlobalChatPanel();
   const getName = () => (document.getElementById("nameInput").value.trim() || "플레이어").slice(0, 10);
   document.getElementById("nameForm").onsubmit = (e) => {
     e.preventDefault();
@@ -120,9 +154,9 @@ function renderLanding() {
       localStorage.setItem("tichu_room", myRoom);
     });
   };
-  const doJoin = (asSpectator) => {
+  const doJoin = (asSpectator, codeOverride) => {
     myName = getName();
-    const code = document.getElementById("codeInput").value.trim().toUpperCase();
+    const code = codeOverride || document.getElementById("codeInput").value.trim().toUpperCase();
     localStorage.setItem("tichu_name", myName);
     socket.emit("joinRoom", { code, name: myName, asSpectator }, (res) => {
       if (res.error) return showToast(res.error);
@@ -132,6 +166,17 @@ function renderLanding() {
   };
   document.getElementById("joinForm").onsubmit = (e) => { e.preventDefault(); doJoin(false); };
   document.getElementById("spectateBtn").onclick = () => doJoin(true);
+  document.getElementById("refreshRoomsBtn").onclick = () => fetchRoomList(true);
+  document.querySelectorAll(".room-list-item").forEach((b) => b.onclick = () => doJoin(false, b.dataset.code));
+}
+
+let openRooms = [];
+let roomListFetched = false;
+function fetchRoomList(rerender) {
+  socket.emit("listRooms", null, (res) => {
+    openRooms = (res && res.rooms) || [];
+    if (rerender && !state) render();
+  });
 }
 
 /* ---------------- Lobby ---------------- */
@@ -146,7 +191,9 @@ function renderLobby() {
   const myReady = mySeat !== null && state.players[mySeat] ? state.players[mySeat].ready : false;
   const hasEmptySeat = !state.players.every((p) => p !== null);
   const canJoinSeat = isSpectator && hasEmptySeat;
-  const canSwap = !isSpectator && state.players.some((p, i) => p && !p.isBot && i !== mySeat);
+  const canMove = !isSpectator && hasEmptySeat;
+  const humanCount = state.players.filter((p) => p && !p.isBot).length;
+  const canGoSpectate = !isSpectator && humanCount > 1;
 
   app.innerHTML = `
     <div class="lobby">
@@ -157,8 +204,8 @@ function renderLobby() {
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
         ${hasEmptySeat ? `<button id="addBotBtn">봇 추가</button>` : ""}
         ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
-        ${!isSpectator ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
-        ${canSwap ? `<button id="swapSeatBtn" class="ghost">자리 바꾸기</button>` : ""}
+        ${canMove ? `<button id="moveSeatBtn" class="ghost">빈 자리로 이동</button>` : ""}
+        ${canGoSpectate ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
       </div>
       <div class="spectator-bar">
         <div class="chip">관전자 ${state.spectatorCount}명</div>
@@ -167,6 +214,7 @@ function renderLobby() {
         ${!isSpectator ? `<button class="small" id="fixedSeatBtn">지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
       </div>
       <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요"}</div>
+      <button id="leaveLobbyBtn" class="ghost danger">방 나가기</button>
     </div>
   `;
   const readyBtn = document.getElementById("readyBtn");
@@ -183,21 +231,24 @@ function renderLobby() {
     if (res && res.ok) { isSpectator = true; mySeat = null; render(); }
     else if (res && res.error) showToast(res.error);
   });
-  const swapSeatBtn = document.getElementById("swapSeatBtn");
-  if (swapSeatBtn) swapSeatBtn.onclick = () => {
-    const others = state.players.map((p, i) => (p && !p.isBot && i !== mySeat ? { seat: i, name: p.name } : null)).filter(Boolean);
+  const moveSeatBtn = document.getElementById("moveSeatBtn");
+  if (moveSeatBtn) moveSeatBtn.onclick = () => {
+    const empties = state.players.map((p, i) => (!p ? i : null)).filter((i) => i !== null);
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
-    backdrop.innerHTML = `<div class="modal"><h3>자리 바꾸기</h3>
-      <div class="status-line">바꿀 상대를 선택하세요</div>
-      <div class="hand-actions" style="flex-wrap:wrap;">${others.map((o) => `<button data-s="${o.seat}">${o.name} (좌석${o.seat + 1})</button>`).join("")}</div>
-      <button id="cancelSwap" class="ghost">취소</button></div>`;
+    backdrop.innerHTML = `<div class="modal"><h3>빈 자리로 이동</h3>
+      <div class="status-line">이동할 좌석을 선택하세요</div>
+      <div class="hand-actions" style="flex-wrap:wrap;">${empties.map((i) => `<button data-s="${i}">좌석 ${i + 1} (${i % 2 === 0 ? "팀A" : "팀B"})</button>`).join("")}</div>
+      <button id="cancelMove" class="ghost">취소</button></div>`;
     document.body.appendChild(backdrop);
     backdrop.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => {
-      socket.emit("swapSeat", { targetSeat: Number(b.dataset.s) }, (res) => { if (res && res.error) showToast(res.error); });
+      socket.emit("moveSeat", { targetSeat: Number(b.dataset.s) }, (res) => {
+        if (res && res.ok) { mySeat = Number(b.dataset.s); render(); }
+        else if (res && res.error) showToast(res.error);
+      });
       backdrop.remove();
     });
-    document.getElementById("cancelSwap").onclick = () => backdrop.remove();
+    document.getElementById("cancelMove").onclick = () => backdrop.remove();
   };
   const fixedSeatBtn = document.getElementById("fixedSeatBtn");
   if (fixedSeatBtn) fixedSeatBtn.onclick = () => socket.emit("setFixedSeats", { enabled: !state.fixedSeats });
@@ -211,6 +262,8 @@ function renderLobby() {
     document.body.appendChild(backdrop);
     document.getElementById("closeSpec").onclick = () => backdrop.remove();
   };
+  const leaveLobbyBtn = document.getElementById("leaveLobbyBtn");
+  if (leaveLobbyBtn) leaveLobbyBtn.onclick = () => { socket.disconnect(); localStorage.removeItem("tichu_room"); location.reload(); };
 }
 
 /* ---------------- Grand(라지) Tichu ---------------- */
@@ -219,13 +272,14 @@ function renderGrand() {
   const myHand = (state.first8 || []).map((c) => cardHTML(c)).join("");
   const decided = state.grandDecision[mySeat] !== null;
   const waitingOn = state.players.map((p, i) => p && state.grandDecision[i] === null ? p.name : null).filter(Boolean);
+  const isPendingLarge = !!confirmPending.largeTichu;
   app.innerHTML = `
     <div class="lobby">
       <h2 class="accent" style="font-size:32px">라지티츄?</h2>
       <div class="status-line">처음 8장을 보고 라지티츄를 부를지 결정하세요 (성공 +200 / 실패 -200)</div>
       <div class="hand-cards" style="max-width:520px">${myHand}</div>
       <div class="hand-actions">
-        <button class="primary" id="grandYes" ${decided ? "disabled" : ""}>라지티츄 콜!</button>
+        <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${decided ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜!"}</button>
         <button id="grandNo" ${decided ? "disabled" : ""}>패스</button>
       </div>
       <div class="status-line">${decided ? "선택 완료 — 다른 플레이어를 기다리는 중" : ""}</div>
@@ -233,7 +287,7 @@ function renderGrand() {
     </div>
   `;
   const y = document.getElementById("grandYes"), n = document.getElementById("grandNo");
-  if (y) y.onclick = () => socket.emit("callGrandTichu", { wantsLarge: true });
+  if (y) y.onclick = () => handleDoubleConfirm("largeTichu", () => socket.emit("callGrandTichu", { wantsLarge: true }));
   if (n) n.onclick = () => socket.emit("callGrandTichu", { wantsLarge: false });
 }
 
@@ -310,8 +364,12 @@ function renderExchangeSummary() {
   const topSeat = (mySeat + 2) % 4;
   const leftSeat = (mySeat + 3) % 4;
   const labelFor = (s) => s === topSeat ? "파트너" : s === rightSeat ? "오른쪽 사람" : s === leftSeat ? "왼쪽 사람" : "?";
-  const items = (exchangeSummaryData || []).map(({ from, card }) => `
-    <div class="received-item">
+  const data = exchangeSummaryData || [];
+  const find = (s) => data.find((d) => d.from === s);
+  // 왼쪽 사람 - 파트너 - 오른쪽 사람 순서로 배치해서 아군(파트너)이 준 카드가 항상 가운데 오게 함
+  const ordered = [find(leftSeat), find(topSeat), find(rightSeat)].filter(Boolean);
+  const items = ordered.map(({ from, card }) => `
+    <div class="received-item ${from === topSeat ? "partner-gift" : ""}">
       <div class="label">${labelFor(from)}에게 받음</div>
       ${cardHTML(card)}
     </div>`).join("");
@@ -461,7 +519,7 @@ function renderPlay() {
       <div class="hand-wrap">
         <div class="status-line">${isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`)}</div>
         <div class="hand-actions">
-          <button id="smallTichuBtn" class="ghost" ${canCallSmall ? "" : "disabled"}>스몰티츄 콜! (+100/-100)</button>
+          <button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}" ${canCallSmall ? "" : "disabled"}>${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
         </div>
         <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
         <div class="hand-actions">
@@ -493,7 +551,7 @@ function renderPlay() {
     }
   };
   const smallBtn = document.getElementById("smallTichuBtn");
-  if (smallBtn) smallBtn.onclick = () => socket.emit("callTichu");
+  if (smallBtn) smallBtn.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
   const menuBtn = document.getElementById("menuBtn");
   if (menuBtn) menuBtn.onclick = () => { menuOpen = !menuOpen; render(); };
   const leaveBtn = document.getElementById("leaveBtn");
@@ -612,6 +670,33 @@ function wireChatPanel() {
     input.value = "";
   };
   const sendBtn = document.getElementById("chatSendBtn");
+  if (sendBtn) sendBtn.onclick = send;
+  if (input) input.onkeydown = (e) => { if (e.key === "Enter") send(); };
+}
+
+function renderGlobalChatPanel() {
+  return `<div class="chat-panel">
+    <div class="chat-messages" id="globalChatMessages">
+      ${globalChatMessages.map((m) => `<div class="msg"><span class="who">${escapeHtml(m.name || "?")}</span>${escapeHtml(m.text)}</div>`).join("")}
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="globalChatInput" maxlength="200" placeholder="메시지 입력..." />
+      <button id="globalChatSendBtn">전송</button>
+    </div>
+  </div>`;
+}
+function wireGlobalChatPanel() {
+  const box = document.getElementById("globalChatMessages");
+  if (box) box.scrollTop = box.scrollHeight;
+  const input = document.getElementById("globalChatInput");
+  const send = () => {
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    socket.emit("globalChatMessage", { text, name: myName || "익명" });
+    input.value = "";
+  };
+  const sendBtn = document.getElementById("globalChatSendBtn");
   if (sendBtn) sendBtn.onclick = send;
   if (input) input.onkeydown = (e) => { if (e.key === "Enter") send(); };
 }
@@ -771,5 +856,10 @@ socket.on("chatMessage", (m) => {
   render(); // 채팅창이 닫혀있어도 말풍선 갱신을 위해 항상 리렌더
 });
 socket.on("connect", () => render());
+socket.on("globalChatMessage", (m) => {
+  globalChatMessages.push(m);
+  if (globalChatMessages.length > 100) globalChatMessages.shift();
+  if (!state) render(); // 메인화면(방 밖)에 있을 때만 즉시 반영
+});
 
 render();
