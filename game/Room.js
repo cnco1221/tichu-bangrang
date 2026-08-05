@@ -184,6 +184,7 @@ class Room {
 
   callGrandTichu(seat, wantsLarge) {
     if (this.phase !== "grand" || this.grandDecision[seat] !== null) return;
+    if (wantsLarge && this.tichuCalled[seat] === "small") return; // 이미 스몰티츄를 선언했으면 라지티츄로 바꿀 수 없음
     this.grandDecision[seat] = !!wantsLarge;
     if (wantsLarge) this.tichuCalled[seat] = "large";
     if (this.grandDecision.every((d) => d !== null)) {
@@ -263,10 +264,22 @@ class Room {
   }
 
   callTichu(seat) {
-    if (this.phase !== "play") return false;
-    if (this.tichuCalled[seat]) return false;
-    if (this.hands[seat].length !== 14) return false;
+    if (this.finished[seat]) return false;
+    if (this.tichuCalled[seat]) return false; // 이미 라지/스몰 중 하나를 선언함
+    if (this.phase === "play") {
+      if (this.hands[seat].length !== 14) return false; // 플레이 단계에선 아직 한 장도 안 낸 상태(14장)여야 함
+    } else if (this.phase !== "grand" && this.phase !== "exchange") {
+      return false;
+    }
     this.tichuCalled[seat] = "small";
+    if (this.phase === "grand" && this.grandDecision[seat] === null) {
+      this.grandDecision[seat] = false; // 스몰티츄를 선언하면 라지티츄는 자동으로 패스 처리
+      if (this.grandDecision.every((d) => d !== null)) {
+        this.hands = this._full14.map((h) => sortHand(h));
+        this.phase = "exchange";
+        this._armExchangeTimer();
+      }
+    }
     return true;
   }
 
