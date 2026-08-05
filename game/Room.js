@@ -50,16 +50,17 @@ class Room {
     this.requestedRank = null;
     this.requestSatisfied = true;
     this.lastDragonGift = null; // { from, to } - 용으로 이긴 트릭을 누구에게 줬는지(보드 표시용)
+    this.strikesThisHand = [0, 0, 0, 0]; // 이번 라운드 동안 새로 쌓인 잠수 스택 수(0이면 다음 라운드 시작 시 전체 스택 초기화)
     this._clearExchangeTimer();
     this._clearTimer();
   }
 
   /* ---------------- 좌석 / 관전자 ---------------- */
 
-  addPlayer(socketId, name) {
+  addPlayer(socketId, name, token) {
     const seat = this.players.findIndex((p) => p === null);
     if (seat === -1) return null;
-    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false };
+    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false, token: token || null, disconnectTimer: null };
     return seat;
   }
 
@@ -92,9 +93,11 @@ class Room {
     const seat = this.players.findIndex((p) => p && p.socketId === socketId);
     if (seat !== -1) {
       if (this.phase !== "lobby" && this.phase !== "gameover" && this.phase !== "aborted") {
-        // 게임 도중 탈주 -> 즉시 무효 처리
-        this.players[seat].connected = false;
-        this._abort(`${this.players[seat].name}님이 나가서 게임이 무효 처리되었어요`);
+        // 게임 도중 연결이 끊겨도 즉시 무효 처리하지 않고 잠수 스택만 하나 쌓음(재접속 가능)
+        const p = this.players[seat];
+        p.connected = false;
+        p.socketId = null;
+        this._addAbandonStrike(seat);
       } else {
         this.players[seat] = null;
       }
@@ -102,6 +105,26 @@ class Room {
     const specIdx = this.spectators.findIndex((s) => s.socketId === socketId);
     if (specIdx !== -1) this.spectators.splice(specIdx, 1);
     return seat;
+  }
+
+  // 같은 토큰을 들고 다시 접속하면 원래 좌석으로 복귀(연결 끊긴 좌석만 대상)
+  reconnectPlayer(token, newSocketId) {
+    if (!token) return null;
+    const seat = this.players.findIndex((p) => p && p.token === token && !p.connected);
+    if (seat === -1) return null;
+    this.players[seat].socketId = newSocketId;
+    this.players[seat].connected = true;
+    return seat;
+  }
+
+  _addAbandonStrike(seat) {
+    const p = this.players[seat];
+    if (!p) return;
+    p.abandonCount = (p.abandonCount || 0) + 1;
+    this.strikesThisHand[seat] = (this.strikesThisHand[seat] || 0) + 1;
+    if (p.abandonCount >= MAX_ABANDON) {
+      this._abort(`${p.name}님이 잠수 ${MAX_ABANDON}회로 게임이 무효 처리되었어요`);
+    }
   }
 
   seatBySocket(socketId) {
@@ -177,6 +200,12 @@ class Room {
   }
 
   startHand() {
+    // 직전 라운드 동안 잠수 스택이 하나도 안 쌓인 사람은 스택을 초기화해줌
+    for (let s = 0; s < 4; s++) {
+      if (this.players[s] && (this.strikesThisHand[s] || 0) === 0) {
+        this.players[s].abandonCount = 0;
+      }
+    }
     this.resetHandState();
     const { first8, full14 } = dealHands();
     this.first8 = first8;
@@ -594,8 +623,8 @@ class Room {
   _onTimeout() {
     const seat = this.turnSeat;
     if (seat === null || this.phase !== "play") return;
-    const player = this.players[seat];
-    if (player) player.abandonCount = (player.abandonCount || 0) + 1;
+    this._addAbandonStrike(seat);
+    if (this.phase !== "play") { this.notify(this.code); return; } // 스택 3회로 방금 무효 처리됐으면 더 진행하지 않음
 
     const hand = this.hands[seat];
     if (!hand || hand.length === 0) { this.notify(this.code); return; } // 방어적 가드 (정상 플로우에선 발생 안 함)
@@ -621,9 +650,6 @@ class Room {
       }
     }
 
-    if (player && player.abandonCount >= MAX_ABANDON) {
-      this._abort(`${player.name}님이 잠수 ${MAX_ABANDON}회로 게임이 무효 처리되었어요`);
-    }
     this.notify(this.code);
   }
 
