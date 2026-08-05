@@ -50,7 +50,7 @@ function afterMutation(code) {
 }
 
 function makeRoom(code) {
-  const room = new Room(code, (c) => broadcast(c)); // 타이머 콜백 등에서 사용
+  const room = new Room(code, (c) => afterMutation(c)); // 타이머/지연 이벤트 후에도 봇 턴이 이어지도록 afterMutation 사용
   rooms.set(code, room);
   return room;
 }
