@@ -303,11 +303,11 @@ function seatBoxHTML(seat, posClass, role) {
   const finished = state.finished[seat] ? " ✓" : "";
   const count = state.handCounts[seat];
   const connected = state.players[seat] && state.players[seat].connected;
-  const passBubble = passBubbleSeat === seat ? `<div class="pass-bubble">패스</div>` : "";
+  const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat);
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}">
-    ${passBubble}
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
+    ${hasPassed ? `<div class="pass-tag">패스</div>` : ""}
     <div class="count">${count}장</div>
     ${badge}
   </div>`;
@@ -330,13 +330,19 @@ function isLikelyBomb(cards) {
   return false;
 }
 
+function formatPhoenixValue(power) {
+  const whole = Math.floor(power);
+  const label = whole >= 2 ? RANK_LABEL[whole] : String(whole);
+  return `${label}.5`;
+}
+
 function comboLabel(combo) {
   if (!combo) return "";
   if (combo.type === "dog") return "개";
   if (combo.type === "single") {
     const c = combo.cards[0];
     if (c.special === "dragon") return "용 싱글";
-    if (c.special === "phoenix") return "봉황 싱글";
+    if (c.special === "phoenix") return `봉황 싱글 (${formatPhoenixValue(combo.power)})`;
     if (c.special === "sparrow") return "참새 싱글";
     return `${RANK_LABEL[c.rank]} 싱글`;
   }
@@ -373,6 +379,9 @@ function renderPlay() {
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = state.requestedRank
     ? `<div class="requested-tag ${state.requestSatisfied ? "satisfied" : ""}">콜 : ${RANK_LABEL[state.requestedRank]}${state.requestSatisfied ? " ✓" : ""}</div>`
+    : "";
+  const dragonGiftTag = state.lastDragonGift
+    ? `<div class="dragon-gift-tag">龍 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
 
   const myHand = state.myHand || [];
@@ -411,6 +420,7 @@ function renderPlay() {
         ${seatBoxHTML(leftSeat, "seat-west", "상대")}
         <div class="seat-center trick-area">
           ${requestedTag}
+          ${dragonGiftTag}
           <div class="trick-plays">${plays || `<div class="trick-empty">${isLeading ? "리드를 기다리는 중" : ""}</div>`}</div>
           ${lastPlay ? `<div class="combo-label"><div class="who">${seatLabel(lastPlay.seat)}</div><div class="what">${comboLabelText}</div></div>` : ""}
         </div>
@@ -657,18 +667,10 @@ function checkPlaySound(newState) {
 }
 
 let lastSeenActionSeq = 0;
-let passBubbleSeat = null;
 function checkActionEvents(s) {
   if (s && typeof s.actionSeq === "number" && s.actionSeq > lastSeenActionSeq) {
     lastSeenActionSeq = s.actionSeq;
-    if (s.lastAction) {
-      if (s.lastAction.type === "pass") {
-        passBubbleSeat = s.lastAction.seat;
-        setTimeout(() => { passBubbleSeat = null; render(); }, 1000);
-      } else if (s.lastAction.type === "trickStart") {
-        playTrickStartSound();
-      }
-    }
+    if (s.lastAction && s.lastAction.type === "trickStart") playTrickStartSound();
   }
 }
 

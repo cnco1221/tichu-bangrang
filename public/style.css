@@ -108,21 +108,12 @@ input[type=text] {
 .seat-box .badge.large { background: var(--gold-soft); }
 .seat-box.disconnected { opacity: .4; }
 
-.pass-bubble {
-  position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
-  background: var(--panel); border: 1px solid var(--panel-line); color: var(--ivory);
-  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 10px;
-  white-space: nowrap; z-index: 5; animation: bubblePop 1s ease forwards;
-}
-.pass-bubble::after {
-  content: ""; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%);
-  border-width: 5px 5px 0 5px; border-style: solid; border-color: var(--panel-line) transparent transparent transparent;
-}
-@keyframes bubblePop {
-  0% { opacity: 0; transform: translate(-50%, 4px) scale(.8); }
-  15% { opacity: 1; transform: translate(-50%, 0) scale(1); }
-  80% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -4px) scale(.9); }
+.pass-tag { font-size: 9px; font-weight: 700; color: var(--sword); }
+
+.dragon-gift-tag {
+  position: absolute; top: 6px; left: 8px;
+  background: rgba(138,90,26,.85); color: #fff3da; font-size: 10px; font-weight: 700;
+  padding: 3px 9px; border-radius: 10px; white-space: nowrap;
 }
 
 .seat-north { grid-column: 2; grid-row: 1; }
