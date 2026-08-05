@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.07"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.08"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -90,7 +90,7 @@ const FOCUS_PRESERVE_IDS = ["chatInput", "globalChatInput", "nameInput", "codeIn
 function render() {
   document.querySelectorAll(".chat-bubble-overlay").forEach((el) => el.remove());
   if (!state || state.phase !== "exchange") {
-    const exModal = document.querySelector(".modal-backdrop.exchange-modal");
+    const exModal = document.querySelector(".floating-panel-wrap.exchange-modal");
     if (exModal) exModal.remove();
   }
   if (!exchangeSummaryVisible) {
@@ -389,10 +389,10 @@ function openExchangeModal() {
     </div>`;
   };
 
-  let backdrop = document.querySelector(".modal-backdrop.exchange-modal");
+  let backdrop = document.querySelector(".floating-panel-wrap.exchange-modal");
   if (!backdrop) {
     backdrop = document.createElement("div");
-    backdrop.className = "modal-backdrop exchange-modal";
+    backdrop.className = "floating-panel-wrap exchange-modal";
     document.body.appendChild(backdrop);
   }
   backdrop.innerHTML = `

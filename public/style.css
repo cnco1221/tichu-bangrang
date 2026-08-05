@@ -215,6 +215,10 @@ input[type=text] {
 
 /* ---------- Modals / Panels ---------- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
+
+/* 카드교환 패널: 화면을 다 덮는 백드롭이 아니라 위쪽에 떠 있는 작은 패널 - 뒤의 손패를 계속 탭할 수 있어야 함 */
+.floating-panel-wrap { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 45; pointer-events: none; }
+.floating-panel-wrap .modal { pointer-events: auto; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 .modal { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 18px; max-width: 460px; width: min(92vw, 460px); display: flex; flex-direction: column; gap: 14px; max-height: 80vh; overflow-y: auto; }
 .modal.exchange-modal-compact { max-width: 280px; width: min(78vw, 280px); padding: 12px; gap: 8px; }
 .modal h3 { color: var(--gold-soft); }
