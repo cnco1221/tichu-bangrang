@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.04"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.05"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -85,10 +85,33 @@ function cardHTML(card, { small = false, isSelected = false, isPicking = false }
   </div>`;
 }
 
+const FOCUS_PRESERVE_IDS = ["chatInput", "globalChatInput", "nameInput", "codeInput"];
+
 function render() {
   document.querySelectorAll(".chat-bubble-overlay").forEach((el) => el.remove());
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
+
+  // 게임 상태가 자주 갱신돼도(다른 플레이어/봇 행동 등) 채팅 입력창 포커스/커서/내용이 안 날아가게 보존
+  const active = document.activeElement;
+  let saved = null;
+  if (active && FOCUS_PRESERVE_IDS.includes(active.id)) {
+    saved = { id: active.id, value: active.value, selStart: active.selectionStart, selEnd: active.selectionEnd };
+  }
+
+  runRenderDispatch();
+
+  if (saved) {
+    const el = document.getElementById(saved.id);
+    if (el) {
+      el.value = saved.value;
+      el.focus({ preventScroll: true });
+      try { el.setSelectionRange(saved.selStart, saved.selEnd); } catch (e) { /* 일부 input 타입은 지원 안 함 */ }
+    }
+  }
+}
+
+function runRenderDispatch() {
   if (!state) return renderLanding();
   if (state.phase === "lobby") return renderLobby();
   if (state.phase === "grand") return renderGrand();
