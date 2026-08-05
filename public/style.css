@@ -58,6 +58,7 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 button.small { padding: 6px 10px; font-size: 12px; }
 button.icon-btn { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 17px; flex-shrink: 0; }
 button.icon-btn.text-btn { width: auto; height: auto; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; color: var(--danger); border-color: var(--danger); }
+button.text-btn:not(.icon-btn) { font-size: 11px; padding: 6px 10px; opacity: .85; }
 
 input[type=text] {
   background: var(--lacquer-2); border: 1px solid var(--panel-line); color: var(--ivory);
@@ -264,6 +265,11 @@ input[type=text] {
 .chat-preview .who { color: var(--gold-soft); font-weight: 700; margin-right: 4px; }
 
 .top-right-fixed { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 10px; z-index: 46; }
+.top-left-fixed { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: 10px; z-index: 46; }
+
+.admin-tabs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.admin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--lacquer-2); border: 1px solid var(--panel-line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; text-align: left; }
+#adminTabContent, #rankingTabContent { max-height: 45vh; overflow-y: auto; }
 
 .chat-row { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
 .chat-row .icon-btn.small { width: 34px; height: 34px; font-size: 14px; flex-shrink: 0; }

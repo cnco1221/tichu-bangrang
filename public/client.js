@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.13"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.14"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -8,6 +8,8 @@ if (!myToken) {
   myToken = "t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
   localStorage.setItem("tichu_token", myToken);
 }
+let loggedInAs = null; // 로그인한 회원 닉네임(비로그인이면 null, 게스트로 플레이 가능)
+let isAdminMode = false;
 let myRoom = localStorage.getItem("tichu_room") || "";
 let mySeat = null;
 let isSpectator = false;
@@ -142,6 +144,7 @@ function runRenderDispatch() {
 /* ---------------- Landing ---------------- */
 function renderLanding() {
   app.innerHTML = `
+    <button class="text-btn top-left-fixed" id="adminModeBtn">관리자모드</button>
     <div class="landing">
       <div class="cards-row">
         <div class="suit-chip" style="color:${SUIT_COLOR.jade}">◆</div>
@@ -151,8 +154,14 @@ function renderLanding() {
       </div>
       <div class="title accent">방랑단 티츄</div>
       <div class="subtitle">TICHU · 4인 실시간 트릭테이킹</div>
+      ${loggedInAs
+        ? `<div class="chip">${loggedInAs}님으로 로그인됨 <button class="small ghost" id="logoutBtn" style="margin-left:6px;">로그아웃</button></div>`
+        : `<div class="hand-actions">
+            <button class="small ghost" id="openLoginBtn">로그인</button>
+            <button class="small ghost" id="openSignupBtn">회원가입</button>
+          </div>`}
       <form id="nameForm">
-        <input type="text" id="nameInput" placeholder="닉네임 (최대 10자)" value="${myName}" maxlength="10" required />
+        <input type="text" id="nameInput" placeholder="닉네임 (최대 10자)" value="${loggedInAs || myName}" maxlength="10" ${loggedInAs ? "disabled" : ""} required />
         <div class="row">
           <button class="primary" type="submit" id="createBtn">새 방 만들기</button>
         </div>
@@ -174,6 +183,7 @@ function renderLanding() {
             : `<div class="hint">참가 가능한 방이 없어요</div>`}
         </div>
       </div>
+      <button class="ghost" id="openRankingBtn">🏆 랭킹</button>
     </div>
     <div class="version-badge">v${APP_VERSION}</div>
     <button class="chat-fab icon-btn" id="globalChatFab">💬</button>
@@ -182,6 +192,14 @@ function renderLanding() {
   if (!roomListFetched) { roomListFetched = true; fetchRoomList(true); }
   document.getElementById("globalChatFab").onclick = () => { globalChatOpen = !globalChatOpen; render(); };
   wireGlobalChatPanel();
+  document.getElementById("adminModeBtn").onclick = () => openAdminLoginModal();
+  document.getElementById("openRankingBtn").onclick = () => openRankingModal();
+  const openLoginBtn = document.getElementById("openLoginBtn");
+  if (openLoginBtn) openLoginBtn.onclick = () => openLoginModal();
+  const openSignupBtn = document.getElementById("openSignupBtn");
+  if (openSignupBtn) openSignupBtn.onclick = () => openSignupModal();
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; render(); };
   const getName = () => (document.getElementById("nameInput").value.trim() || "플레이어").slice(0, 10);
   document.getElementById("nameForm").onsubmit = (e) => {
     e.preventDefault();
@@ -213,6 +231,214 @@ function fetchRoomList(rerender) {
   socket.emit("listRooms", null, (res) => {
     openRooms = (res && res.rooms) || [];
     if (rerender && !state) render();
+  });
+}
+
+/* ---------------- 로그인 / 회원가입 ---------------- */
+function openLoginModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:280px;">
+      <h3 class="accent" style="font-size:24px">로그인</h3>
+      <input type="text" id="loginNickname" placeholder="닉네임" maxlength="10" />
+      <input type="password" id="loginPassword" placeholder="비밀번호" />
+      <div class="hand-actions">
+        <button class="primary" id="loginSubmitBtn">로그인</button>
+        <button class="ghost" id="loginCancelBtn">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("loginCancelBtn").onclick = () => backdrop.remove();
+  document.getElementById("loginSubmitBtn").onclick = () => {
+    const nickname = document.getElementById("loginNickname").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    socket.emit("login", { nickname, password }, (res) => {
+      if (res.error) return showToast(res.error);
+      loggedInAs = res.nickname;
+      myName = res.nickname;
+      backdrop.remove();
+      render();
+    });
+  };
+}
+
+function openSignupModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:280px;">
+      <h3 class="accent" style="font-size:24px">회원가입</h3>
+      <input type="text" id="signupName" placeholder="이름(관리자만 볼 수 있어요)" maxlength="20" />
+      <input type="text" id="signupNickname" placeholder="닉네임" maxlength="10" />
+      <input type="password" id="signupPassword" placeholder="비밀번호" />
+      <div class="status-line">가입 신청 후 관리자 승인이 필요해요</div>
+      <div class="hand-actions">
+        <button class="primary" id="signupSubmitBtn">가입 신청</button>
+        <button class="ghost" id="signupCancelBtn">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("signupCancelBtn").onclick = () => backdrop.remove();
+  document.getElementById("signupSubmitBtn").onclick = () => {
+    const name = document.getElementById("signupName").value.trim();
+    const nickname = document.getElementById("signupNickname").value.trim();
+    const password = document.getElementById("signupPassword").value;
+    socket.emit("signup", { name, nickname, password }, (res) => {
+      if (res.error) return showToast(res.error);
+      showToast("가입 신청 완료! 관리자 승인을 기다려주세요");
+      backdrop.remove();
+    });
+  };
+}
+
+/* ---------------- 관리자모드 ---------------- */
+function openAdminLoginModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:260px;">
+      <h3 class="accent" style="font-size:24px">관리자모드</h3>
+      <input type="password" id="adminPassword" placeholder="관리자 비밀번호" />
+      <div class="hand-actions">
+        <button class="primary" id="adminLoginSubmitBtn">입장</button>
+        <button class="ghost" id="adminLoginCancelBtn">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("adminLoginCancelBtn").onclick = () => backdrop.remove();
+  const submit = () => {
+    const password = document.getElementById("adminPassword").value;
+    socket.emit("adminLogin", { password }, (res) => {
+      if (res.error) return showToast(res.error);
+      isAdminMode = true;
+      backdrop.remove();
+      openAdminPanel("pending");
+    });
+  };
+  document.getElementById("adminLoginSubmitBtn").onclick = submit;
+  document.getElementById("adminPassword").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+}
+
+function openAdminPanel(activeTab) {
+  let backdrop = document.querySelector(".modal-backdrop.admin-panel");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop admin-panel";
+    document.body.appendChild(backdrop);
+  }
+  const tabs = [
+    { id: "members", label: "멤버 관리" },
+    { id: "pending", label: "멤버 승인" },
+    { id: "password", label: "비밀번호 변경" },
+  ];
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:360px;">
+      <h3 class="accent" style="font-size:24px">관리자모드</h3>
+      <div class="admin-tabs">${tabs.map((t) => `<button class="small ${activeTab === t.id ? "primary" : "ghost"}" data-tab="${t.id}">${t.label}</button>`).join("")}</div>
+      <div id="adminTabContent"><div class="status-line">불러오는 중...</div></div>
+      <button class="ghost" id="adminCloseBtn">닫기</button>
+    </div>`;
+  backdrop.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => openAdminPanel(b.dataset.tab));
+  document.getElementById("adminCloseBtn").onclick = () => { backdrop.remove(); isAdminMode = false; };
+
+  const content = document.getElementById("adminTabContent");
+  if (activeTab === "pending") {
+    socket.emit("adminListPending", null, (res) => {
+      if (res.error) { content.innerHTML = `<div class="status-line">${res.error}</div>`; return; }
+      content.innerHTML = res.pending.length
+        ? res.pending.map((m) => `
+            <div class="admin-row">
+              <div>${escapeHtml(m.name)} (${escapeHtml(m.nickname)})</div>
+              <div class="hand-actions">
+                <button class="small primary" data-approve="${m.nickname}">승인</button>
+                <button class="small danger" data-reject="${m.nickname}">거절</button>
+              </div>
+            </div>`).join("")
+        : `<div class="status-line">승인 대기 중인 멤버가 없어요</div>`;
+      content.querySelectorAll("[data-approve]").forEach((b) => b.onclick = () => {
+        socket.emit("adminApprove", { nickname: b.dataset.approve }, (r) => { if (r.error) showToast(r.error); else openAdminPanel("pending"); });
+      });
+      content.querySelectorAll("[data-reject]").forEach((b) => b.onclick = () => {
+        socket.emit("adminReject", { nickname: b.dataset.reject }, (r) => { if (r.error) showToast(r.error); else openAdminPanel("pending"); });
+      });
+    });
+  } else if (activeTab === "members") {
+    socket.emit("adminListMembers", null, (res) => {
+      if (res.error) { content.innerHTML = `<div class="status-line">${res.error}</div>`; return; }
+      content.innerHTML = res.members.length
+        ? res.members.map((m) => `
+            <div class="admin-row">
+              <div>${escapeHtml(m.name)} (${escapeHtml(m.nickname)}) · ${m.wins}승 ${m.losses}패</div>
+              <div class="hand-actions">
+                <button class="small" data-resetpw="${m.nickname}">비번 변경</button>
+                <button class="small danger" data-delmember="${m.nickname}">삭제</button>
+              </div>
+            </div>`).join("")
+        : `<div class="status-line">등록된 멤버가 없어요</div>`;
+      content.querySelectorAll("[data-resetpw]").forEach((b) => b.onclick = () => {
+        const newPw = prompt(`${b.dataset.resetpw}님의 새 비밀번호를 입력하세요`);
+        if (!newPw) return;
+        socket.emit("adminResetPassword", { nickname: b.dataset.resetpw, newPassword: newPw }, (r) => {
+          if (r.error) showToast(r.error); else showToast("비밀번호가 변경됐어요");
+        });
+      });
+      content.querySelectorAll("[data-delmember]").forEach((b) => b.onclick = () => {
+        if (!confirm(`${b.dataset.delmember}님을 정말 삭제할까요?`)) return;
+        socket.emit("adminDeleteMember", { nickname: b.dataset.delmember }, (r) => { if (r.error) showToast(r.error); else openAdminPanel("members"); });
+      });
+    });
+  } else if (activeTab === "password") {
+    content.innerHTML = `
+      <input type="password" id="newAdminPw" placeholder="새 관리자 비밀번호" />
+      <button class="primary" id="changeAdminPwBtn" style="margin-top:8px;">변경</button>
+    `;
+    document.getElementById("changeAdminPwBtn").onclick = () => {
+      const newPassword = document.getElementById("newAdminPw").value;
+      socket.emit("adminChangePassword", { newPassword }, (r) => {
+        if (r.error) showToast(r.error); else showToast("관리자 비밀번호가 변경됐어요");
+      });
+    };
+  }
+}
+
+/* ---------------- 랭킹 ---------------- */
+function openRankingModal(activeTab) {
+  activeTab = activeTab || "ranking";
+  let backdrop = document.querySelector(".modal-backdrop.ranking-panel");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop ranking-panel";
+    document.body.appendChild(backdrop);
+  }
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:340px;">
+      <h3 class="accent" style="font-size:24px">🏆 랭킹</h3>
+      <div class="admin-tabs">
+        <button class="small ${activeTab === "ranking" ? "primary" : "ghost"}" data-rtab="ranking">랭킹</button>
+        <button class="small ${activeTab === "hof" ? "primary" : "ghost"}" data-rtab="hof">명예의 전당</button>
+      </div>
+      <div id="rankingTabContent"><div class="status-line">불러오는 중...</div></div>
+      <button class="ghost" id="rankingCloseBtn">닫기</button>
+    </div>`;
+  backdrop.querySelectorAll("[data-rtab]").forEach((b) => b.onclick = () => openRankingModal(b.dataset.rtab));
+  document.getElementById("rankingCloseBtn").onclick = () => backdrop.remove();
+
+  const content = document.getElementById("rankingTabContent");
+  if (activeTab === "hof") {
+    content.innerHTML = `<div class="status-line">시즌제 명예의 전당은 추후 추가될 예정이에요</div>`;
+    return;
+  }
+  socket.emit("getRanking", null, (res) => {
+    const ranked = res.ranked || [], unranked = res.unranked || [];
+    content.innerHTML = `
+      <table class="summary-table">
+        <tr><th>순위</th><th>닉네임</th><th>승</th><th>패</th><th>승률</th></tr>
+        ${ranked.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname)}</td><td>${r.wins}</td><td>${r.losses}</td><td>${Math.round(r.winRate * 100)}%</td></tr>`).join("")}
+        ${unranked.map((r) => `<tr><td>X</td><td>${escapeHtml(r.nickname)}</td><td colspan="3">등급전을 한번이라도 하셔야 랭킹이 나옵니다</td></tr>`).join("")}
+      </table>
+      ${!ranked.length && !unranked.length ? `<div class="status-line">등록된 멤버가 없어요</div>` : ""}
+    `;
   });
 }
 
@@ -256,9 +482,11 @@ function renderLobby() {
         <div class="chip">관전자 ${state.spectatorCount}명</div>
         ${state.spectatorCount > 0 ? `<button class="small" id="showSpecBtn">누구인지 보기</button>` : ""}
         <div class="chip">지정석 ${state.fixedSeats ? "켜짐" : "꺼짐"}</div>
-        ${!isSpectator ? `<button class="small" id="fixedSeatBtn">지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
+        ${!isSpectator ? `<button class="small" id="fixedSeatBtn" ${state.ranked ? "disabled" : ""}>지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
+        <div class="chip">등급전 ${state.ranked ? "켜짐" : "꺼짐"}</div>
+        ${!isSpectator ? `<button class="small ${state.ranked ? "primary" : ""}" id="rankedBtn">등급전 ${state.ranked ? "끄기" : "켜기"}</button>` : ""}
       </div>
-      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요"}</div>
+      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.ranked ? "등급전 켜짐 — 팀은 무조건 무작위, 1000점 게임, 종료 시 승패가 기록돼요" : (state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요")}</div>
     </div>
     ${chatPreviewHTML()}
     <button class="chat-fab icon-btn" id="chatFab">💬</button>
@@ -295,6 +523,8 @@ function renderLobby() {
   });
   const fixedSeatBtn = document.getElementById("fixedSeatBtn");
   if (fixedSeatBtn) fixedSeatBtn.onclick = () => socket.emit("setFixedSeats", { enabled: !state.fixedSeats });
+  const rankedBtn = document.getElementById("rankedBtn");
+  if (rankedBtn) rankedBtn.onclick = () => socket.emit("setRanked", { enabled: !state.ranked });
   const showSpecBtn = document.getElementById("showSpecBtn");
   if (showSpecBtn) showSpecBtn.onclick = () => {
     const backdrop = document.createElement("div");
