@@ -48,7 +48,7 @@ function runBots(code, delay = 1500) {
 
 function afterMutation(code) {
   broadcast(code);
-  runBots(code);
+  setTimeout(() => runBots(code), 1500); // 첫 봇 행동도 딜레이 적용(즉시 내는 버그 수정)
 }
 
 function makeRoom(code) {
