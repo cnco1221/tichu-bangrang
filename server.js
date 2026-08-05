@@ -69,20 +69,33 @@ io.on("connection", (socket) => {
     cb && cb({ rooms: list });
   });
 
-  socket.on("createRoom", ({ name }, cb) => {
+  socket.on("createRoom", ({ name, token }, cb) => {
     const code = genCode();
     const room = makeRoom(code);
-    const seat = room.addPlayer(socket.id, (name || "").slice(0, 10));
+    const seat = room.addPlayer(socket.id, (name || "").slice(0, 10), token);
     socketRoom.set(socket.id, code);
     socket.join(code);
     cb && cb({ ok: true, code, seat });
     broadcast(code);
   });
 
-  socket.on("joinRoom", ({ code, name, asSpectator }, cb) => {
+  socket.on("joinRoom", ({ code, name, asSpectator, token }, cb) => {
     code = (code || "").toUpperCase().trim();
     const room = rooms.get(code);
     if (!room) return cb && cb({ error: "존재하지 않는 방이에요" });
+
+    // 같은 토큰으로 재접속 시도: 연결이 끊겼던 원래 좌석으로 복귀
+    if (token) {
+      const reSeat = room.reconnectPlayer(token, socket.id);
+      if (reSeat !== null) {
+        socketRoom.set(socket.id, code);
+        socket.join(code);
+        cb && cb({ ok: true, code, seat: reSeat, reconnected: true });
+        broadcast(code);
+        return;
+      }
+    }
+
     const trimmedName = (name || "").slice(0, 10);
     if (asSpectator || room.isFull()) {
       room.addSpectator(socket.id, trimmedName);
@@ -90,7 +103,7 @@ io.on("connection", (socket) => {
       socket.join(code);
       cb && cb({ ok: true, code, seat: null, spectator: true });
     } else {
-      const seat = room.addPlayer(socket.id, trimmedName);
+      const seat = room.addPlayer(socket.id, trimmedName, token);
       socketRoom.set(socket.id, code);
       socket.join(code);
       cb && cb({ ok: true, code, seat });
