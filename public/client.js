@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.06"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.07"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -92,6 +92,10 @@ function render() {
   if (!state || state.phase !== "exchange") {
     const exModal = document.querySelector(".modal-backdrop.exchange-modal");
     if (exModal) exModal.remove();
+  }
+  if (!exchangeSummaryVisible) {
+    const sumModal = document.querySelector(".modal-backdrop.summary-modal");
+    if (sumModal) sumModal.remove();
   }
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
@@ -258,7 +262,15 @@ function renderLobby() {
       <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요"}</div>
       <button id="leaveLobbyBtn" class="ghost danger">방 나가기</button>
     </div>
+    ${chatPreviewHTML()}
+    <button class="chat-fab icon-btn" id="chatFab">💬</button>
+    ${chatOpen ? renderChatPanel() : ""}
   `;
+  const chatFab = document.getElementById("chatFab");
+  if (chatFab) chatFab.onclick = () => { chatOpen = !chatOpen; render(); };
+  const chatPreview = document.getElementById("chatPreview");
+  if (chatPreview) chatPreview.onclick = () => { chatOpen = true; render(); };
+  wireChatPanel();
   document.querySelectorAll("[data-move]").forEach((b) => b.onclick = () => {
     const targetSeat = Number(b.dataset.move);
     socket.emit("moveSeat", { targetSeat }, (res) => {
@@ -302,24 +314,29 @@ function renderLobby() {
 /* ---------------- Grand(라지) Tichu ---------------- */
 function renderGrand() {
   const myHand = (state.first8 || []).map((c) => cardHTML(c, { small: true })).join("");
+  const alreadyCalled = !isSpectator && !!state.tichuCalled[mySeat];
   const decided = !isSpectator && state.grandDecision[mySeat] !== null;
+  const locked = decided || alreadyCalled; // 라지 결정했거나 스몰을 이미 선언했으면 더 이상 못 바꿈
   const waitingOn = state.players.map((p, i) => p && state.grandDecision[i] === null ? p.name : null).filter(Boolean);
   const isPendingLarge = !!confirmPending.largeTichu;
+  const isPendingSmall = !!confirmPending.smallTichu;
 
   const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}`;
   const bottomHtml = isSpectator ? "" : `
     <div class="hand-cards">${myHand}</div>
     <div class="hand-actions">
-      <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${decided ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜! (+200/-200)"}</button>
-      <button id="grandNo" ${decided ? "disabled" : ""}>패스</button>
+      <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜! (+200/-200)"}</button>
+      <button class="${isPendingSmall ? "danger" : "ghost"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
+      <button id="grandNo" ${locked ? "disabled" : ""}>패스</button>
     </div>
   `;
-  const statusLine = isSpectator ? "관전 중 — 라지티츄 결정 대기" : (decided ? "선택 완료 — 다른 플레이어를 기다리는 중" : "처음 8장을 보고 라지티츄를 부를지 결정하세요");
+  const statusLine = isSpectator ? "관전 중 — 라지티츄 결정 대기" : (locked ? "선택 완료 — 다른 플레이어를 기다리는 중" : "처음 8장을 보고 라지티츄·스몰티츄·패스 중 하나를 고르세요");
 
   renderGameFrame({ centerHtml, bottomHtml, statusLine });
 
-  const y = document.getElementById("grandYes"), n = document.getElementById("grandNo");
+  const y = document.getElementById("grandYes"), n = document.getElementById("grandNo"), sm = document.getElementById("grandSmall");
   if (y) y.onclick = () => handleDoubleConfirm("largeTichu", () => socket.emit("callGrandTichu", { wantsLarge: true }));
+  if (sm) sm.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
   if (n) n.onclick = () => socket.emit("callGrandTichu", { wantsLarge: false });
 }
 
@@ -327,21 +344,46 @@ function renderGrand() {
 function renderExchange() {
   const waitingOn = state.players.map((p, i) => p && !state.exchangeSubmitted[i] ? p.name : null).filter(Boolean);
   const centerHtml = `<div class="trick-empty">카드 교환 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}`;
-  renderGameFrame({ centerHtml, bottomHtml: "", statusLine: isSpectator ? "관전 중 — 카드 교환 대기" : "" });
-  if (!isSpectator) openExchangeModal();
+
+  if (isSpectator) {
+    renderGameFrame({ centerHtml, bottomHtml: "", statusLine: "관전 중 — 카드 교환 대기" });
+    return;
+  }
+
+  const submitted = state.exchangeSubmitted[mySeat];
+  const hand = state.myHand || [];
+  const staged = new Set([exchangeStage.left, exchangeStage.across, exchangeStage.right].filter(Boolean));
+  const handHTML = hand.map((c) => cardHTML(c, { isSelected: staged.has(c.id), isPicking: c.id === exchangeSelectedCardId })).join("");
+  const bottomHtml = `<div class="hand-cards">${handHTML}</div>`;
+  const statusLine = submitted ? "제출 완료 — 대기 중" : "카드를 탭해서 고르고, 위 창에서 줄 사람을 선택하세요";
+
+  renderGameFrame({ centerHtml, bottomHtml, statusLine });
+
+  if (!submitted) {
+    document.querySelectorAll(".hand-cards .card").forEach((el) => {
+      el.onclick = () => {
+        const id = el.dataset.id;
+        for (const k of ["left", "across", "right"]) {
+          if (exchangeStage[k] === id) { exchangeStage[k] = null; render(); return; }
+        }
+        exchangeSelectedCardId = exchangeSelectedCardId === id ? null : id;
+        render();
+      };
+    });
+  }
+  openExchangeModal();
 }
 
 function openExchangeModal() {
   const submitted = state.exchangeSubmitted[mySeat];
   const hand = state.myHand || [];
   const staged = new Set([exchangeStage.left, exchangeStage.across, exchangeStage.right].filter(Boolean));
-  const handHTML = hand.map((c) => cardHTML(c, { isSelected: staged.has(c.id), isPicking: c.id === exchangeSelectedCardId })).join("");
 
   const slot = (key, label) => {
     const id = exchangeStage[key];
     const card = id ? hand.find((c) => c.id === id) : null;
-    const hint = card ? "" : (exchangeSelectedCardId ? "여기로 배치" : "카드 먼저 선택");
-    return `<div class="exchange-slot ${card ? "filled" : ""} ${!card && exchangeSelectedCardId ? "awaiting" : ""}" data-slot="${key}">
+    const hint = card ? "" : (exchangeSelectedCardId ? "여기로 배치" : "카드 선택");
+    return `<div class="exchange-slot compact ${card ? "filled" : ""} ${!card && exchangeSelectedCardId ? "awaiting" : ""}" data-slot="${key}">
       <div class="label">${label}</div>
       ${card ? cardHTML(card, { small: true }) : hint}
     </div>`;
@@ -354,32 +396,19 @@ function openExchangeModal() {
     document.body.appendChild(backdrop);
   }
   backdrop.innerHTML = `
-    <div class="modal">
-      <h3 class="accent" style="font-size:26px">카드 교환</h3>
+    <div class="modal exchange-modal-compact">
       <div class="chip" id="exchangeTimerChip"></div>
-      <div class="status-line">카드를 탭해서 고른 다음, 줄 사람 칸을 탭하세요</div>
       <div class="exchange-slots">
         ${slot("right", "왼쪽 사람")}
         ${slot("across", "파트너")}
         ${slot("left", "오른쪽 사람")}
       </div>
-      <div class="hand-cards" style="max-width:520px">${handHTML}</div>
-      <button class="primary" id="submitExchange" ${submitted || staged.size !== 3 ? "disabled" : ""}>${submitted ? "제출 완료 — 대기 중" : "교환 확정"}</button>
+      <button class="primary" id="submitExchange" ${submitted || staged.size !== 3 ? "disabled" : ""}>${submitted ? "제출 완료" : "교환 확정"}</button>
     </div>
   `;
   startExchangeTimerTick();
 
   if (!submitted) {
-    backdrop.querySelectorAll(".hand-cards .card").forEach((el) => {
-      el.onclick = () => {
-        const id = el.dataset.id;
-        for (const k of ["left", "across", "right"]) {
-          if (exchangeStage[k] === id) { exchangeStage[k] = null; openExchangeModal(); return; }
-        }
-        exchangeSelectedCardId = exchangeSelectedCardId === id ? null : id;
-        openExchangeModal();
-      };
-    });
     backdrop.querySelectorAll(".exchange-slot").forEach((el) => {
       el.onclick = () => {
         const key = el.dataset.slot;
@@ -387,10 +416,10 @@ function openExchangeModal() {
           for (const k of ["left", "across", "right"]) if (exchangeStage[k] === exchangeSelectedCardId) exchangeStage[k] = null;
           exchangeStage[key] = exchangeSelectedCardId;
           exchangeSelectedCardId = null;
-          openExchangeModal();
+          render();
         } else if (exchangeStage[key]) {
           exchangeStage[key] = null;
-          openExchangeModal();
+          render();
         }
       };
     });
@@ -401,6 +430,8 @@ function openExchangeModal() {
 
 
 function renderExchangeSummary() {
+  renderPlay(); // 뒤에 게임 보드가 그대로 보이게(이 시점엔 turnSeat이 잠겨있어 조작은 막혀 있음)
+
   const rightSeat = (mySeat + 1) % 4;
   const topSeat = (mySeat + 2) % 4;
   const leftSeat = (mySeat + 3) % 4;
@@ -412,13 +443,19 @@ function renderExchangeSummary() {
   const items = ordered.map(({ from, card }) => `
     <div class="received-item ${from === topSeat ? "partner-gift" : ""}">
       <div class="label">${labelFor(from)}에게 받음</div>
-      ${cardHTML(card)}
+      ${cardHTML(card, { small: true })}
     </div>`).join("");
-  app.innerHTML = `
-    <div class="lobby">
-      <h2 class="accent" style="font-size:30px">받은 카드</h2>
-      <div class="hand-actions" style="flex-wrap:wrap; gap:16px; justify-content:center;">${items}</div>
-      <div class="status-line">잠시 후 게임이 시작돼요...</div>
+
+  let backdrop = document.querySelector(".modal-backdrop.summary-modal");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop summary-modal";
+    document.body.appendChild(backdrop);
+  }
+  backdrop.innerHTML = `
+    <div class="modal exchange-modal-compact">
+      <h3 class="accent" style="font-size:20px">받은 카드</h3>
+      <div class="hand-actions" style="flex-wrap:wrap; gap:10px; justify-content:center;">${items}</div>
     </div>
   `;
 }
@@ -574,15 +611,16 @@ function renderPlay() {
     animatedPlayKey = playKey;
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
-  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length >= 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = (state.requestedRank && !state.requestSatisfied)
     ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
     : "";
-  const dragonGiftTag = state.lastDragonGift
+  const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
   const centerHtml = `
+    ${lastPlay ? `<div class="trick-direction dir-${fromClass.replace("from-", "")}"></div>` : ""}
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
@@ -633,7 +671,7 @@ function renderPlay() {
   const smallBtn = document.getElementById("smallTichuBtn");
   if (smallBtn) smallBtn.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
 
-  if (state.pendingDragonChoice === mySeat) openDragonModal();
+  if (!isSpectator && mySeat !== null && state.pendingDragonChoice === mySeat) openDragonModal();
 
   startTimerTick();
 }
@@ -905,9 +943,22 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 }
 
+let dragonGiftVisibleUntil = 0;
+let lastSeenDragonGiftKey = null;
+function checkDragonGift(s) {
+  if (!s.lastDragonGift) return;
+  const key = `${s.lastDragonGift.from}_${s.lastDragonGift.to}`;
+  if (key !== lastSeenDragonGiftKey) {
+    lastSeenDragonGiftKey = key;
+    dragonGiftVisibleUntil = Date.now() + 10000;
+    setTimeout(() => render(), 10000); // 10초 후 사라지도록 재렌더
+  }
+}
+
 socket.on("state", (s) => {
   checkPlaySound(s);
   checkActionEvents(s);
+  checkDragonGift(s);
   if (s.phase === "grand" && (!state || state.phase !== "grand")) {
     exchangeStage = { left: null, across: null, right: null };
     exchangeSelectedCardId = null;

@@ -138,14 +138,20 @@ input[type=text] {
 .seat-east  { grid-column: 3; grid-row: 2; }
 .seat-south { grid-column: 2; grid-row: 3; }
 
-.trick-area { min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: radial-gradient(ellipse, rgba(201,162,75,.14), transparent 70%); border: 1px dashed var(--panel-line); border-radius: 16px; padding: 8px; position: relative; min-width: 0; }
+.trick-area { min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: radial-gradient(ellipse, rgba(201,162,75,.14), transparent 70%); border: 1px dashed var(--panel-line); border-radius: 16px; padding: 8px; position: relative; min-width: 0; overflow: hidden; }
+.trick-direction { position: absolute; inset: 0; background: var(--gold-soft); opacity: .22; pointer-events: none; }
+.trick-direction.dir-north { clip-path: polygon(50% 50%, 0 0, 100% 0); }
+.trick-direction.dir-east  { clip-path: polygon(50% 50%, 100% 0, 100% 100%); }
+.trick-direction.dir-south { clip-path: polygon(50% 50%, 100% 100%, 0 100%); }
+.trick-direction.dir-west  { clip-path: polygon(50% 50%, 0 100%, 0 0); }
 .trick-plays { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
 .mini-combo { display: flex; flex-wrap: wrap; gap: 3px; max-width: 100%; justify-content: center; }
-.mini-combo .card { margin-left: 0; width: 27px; height: 40px; padding: 2px 3px; }
-.mini-combo .card .rank { font-size: 9px; }
-.mini-combo .card .suit { font-size: 10px; }
-.mini-combo .card .center-icon { font-size: 11px; }
-.mini-combo .card.special-sparrow .corner-tl, .mini-combo .card.special-sparrow .corner-br { font-size: 7px; }
+.mini-combo .card { margin-left: 0; }
+.mini-combo.long-combo .card { width: 27px; height: 40px; padding: 2px 3px; }
+.mini-combo.long-combo .card .rank { font-size: 9px; }
+.mini-combo.long-combo .card .suit { font-size: 10px; }
+.mini-combo.long-combo .card .center-icon { font-size: 11px; }
+.mini-combo.long-combo .card.special-sparrow .corner-tl, .mini-combo.long-combo .card.special-sparrow .corner-br { font-size: 7px; }
 .mini-combo.play-anim { animation-duration: .8s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
 .mini-combo.play-anim.from-north { animation-name: playFromNorth; }
 .mini-combo.play-anim.from-south { animation-name: playFromSouth; }
@@ -210,10 +216,12 @@ input[type=text] {
 /* ---------- Modals / Panels ---------- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 18px; max-width: 460px; width: min(92vw, 460px); display: flex; flex-direction: column; gap: 14px; max-height: 80vh; overflow-y: auto; }
+.modal.exchange-modal-compact { max-width: 280px; width: min(78vw, 280px); padding: 12px; gap: 8px; }
 .modal h3 { color: var(--gold-soft); }
 .rank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(38px, 1fr)); gap: 6px; }
 .exchange-slots { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .exchange-slot { width: 68px; min-height: 92px; border: 1px dashed var(--panel-line); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 10px; color: var(--ivory-dim); }
+.exchange-slot.compact { width: 50px; min-height: 68px; gap: 2px; font-size: 9px; }
 .exchange-slot.filled { border-style: solid; border-color: var(--jade); }
 .exchange-slot.awaiting { border-style: solid; border-color: var(--star); background: rgba(63,95,146,.08); }
 .exchange-slot .label { font-size: 10px; }
