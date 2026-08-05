@@ -28,8 +28,10 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.7s ease;
 }
-body.tichu-small-bg { background: radial-gradient(ellipse at 50% -10%, rgba(63,95,146,.45) 0%, var(--lacquer) 70%); }
-body.tichu-large-bg { background: radial-gradient(ellipse at 50% -10%, rgba(179,69,63,.45) 0%, var(--lacquer) 70%); }
+body.tichu-small-bg { background: linear-gradient(180deg, rgba(63,95,146,.85) 0%, rgba(63,95,146,.35) 40%, var(--lacquer) 100%); }
+body.tichu-large-bg { background: linear-gradient(180deg, rgba(179,69,63,.85) 0%, rgba(179,69,63,.35) 40%, var(--lacquer) 100%); }
+body.tichu-small-bg .topbar, body.tichu-small-bg .hand-wrap { background: rgba(63,95,146,.4); }
+body.tichu-large-bg .topbar, body.tichu-large-bg .hand-wrap { background: rgba(179,69,63,.4); }
 
 #app { height: 100%; width: 100%; max-width: 100vw; overflow: hidden; position: relative; }
 
@@ -102,7 +104,7 @@ input[type=text] {
 .topbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .topbar-right .chip { font-size: 10px; white-space: nowrap; }
 
-.compass { position: relative; display: grid; grid-template-columns: 0.85fr 2.3fr 0.85fr; grid-template-rows: 1fr 1.6fr 1fr; height: 100%; width: 100%; max-width: 100%; padding: 6px 6px; gap: 5px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
+.compass { position: relative; display: grid; grid-template-columns: 0.7fr 2.6fr 0.7fr; grid-template-rows: 0.9fr 1.8fr 0.9fr; height: 100%; width: 100%; max-width: 100%; padding: 6px 6px; gap: 8px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
 .seat-box {
   border: 1px solid var(--panel-line); border-radius: 8px; background: var(--panel);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px 8px; font-size: 11px; color: var(--ivory-dim); min-width: 0; overflow: visible; position: relative;
@@ -217,7 +219,7 @@ input[type=text] {
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 
 /* 카드교환 패널: 화면을 다 덮는 백드롭이 아니라 위쪽에 떠 있는 작은 패널 - 뒤의 손패를 계속 탭할 수 있어야 함 */
-.floating-panel-wrap { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 45; pointer-events: none; }
+.floating-panel-wrap { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 45; pointer-events: none; }
 .floating-panel-wrap .modal { pointer-events: auto; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 .modal { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 18px; max-width: 460px; width: min(92vw, 460px); display: flex; flex-direction: column; gap: 14px; max-height: 80vh; overflow-y: auto; }
 .modal.exchange-modal-compact { max-width: 280px; width: min(78vw, 280px); padding: 12px; gap: 8px; }
@@ -237,7 +239,7 @@ input[type=text] {
 .received-item .label { font-size: 12px; color: var(--gold-soft); font-weight: 700; }
 .received-item.partner-gift .card { box-shadow: 0 0 0 2px var(--gold), 0 4px 10px rgba(0,0,0,.25); transform: scale(1.08); }
 
-.toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--danger); color: var(--ivory); padding: 8px 16px; border-radius: 8px; font-size: 12px; z-index: 60; }
+.toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--panel); border: 1px solid var(--danger); color: var(--ivory); padding: 12px 20px; border-radius: 10px; font-size: 13px; z-index: 60; max-width: 80vw; text-align: center; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 
 .version-badge { position: fixed; left: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); font-size: 10px; color: var(--ivory-dim); background: var(--panel); border: 1px solid var(--panel-line); padding: 2px 8px; border-radius: 8px; z-index: 5; }
 .chip { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 11px; background: var(--lacquer-2); border: 1px solid var(--panel-line); }
@@ -257,6 +259,13 @@ input[type=text] {
 
 .chat-preview { position: fixed; right: 64px; bottom: calc(16px + env(safe-area-inset-bottom)); max-width: 150px; background: var(--panel); border: 1px solid var(--panel-line); padding: 6px 10px; border-radius: 14px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 39; cursor: pointer; }
 .chat-preview .who { color: var(--gold-soft); font-weight: 700; margin-right: 4px; }
+
+.top-right-fixed { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 10px; z-index: 46; }
+
+.chat-row { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.chat-row .icon-btn.small { width: 34px; height: 34px; font-size: 14px; flex-shrink: 0; }
+.chat-preview-inline { flex: 1; min-width: 0; background: var(--lacquer-2); border: 1px solid var(--panel-line); border-radius: 10px; padding: 6px 10px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.chat-preview-inline .who { color: var(--gold-soft); font-weight: 700; margin-right: 4px; }
 
 .cancel-bar { position: fixed; top: calc(50px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--danger); padding: 6px 12px; border-radius: 10px; font-size: 11px; z-index: 42; display: flex; gap: 8px; align-items: center; white-space: nowrap; }
 

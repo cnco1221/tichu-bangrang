@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.08"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.10"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -243,6 +243,7 @@ function renderLobby() {
   const canGoSpectate = !isSpectator && humanCount > 1;
 
   app.innerHTML = `
+    <button class="icon-btn top-right-fixed" id="leaveLobbyBtn" title="방 나가기">🚪</button>
     <div class="lobby">
       <div>방 코드</div>
       <div class="room-code">${state.code}</div>
@@ -260,7 +261,6 @@ function renderLobby() {
         ${!isSpectator ? `<button class="small" id="fixedSeatBtn">지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
       </div>
       <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요"}</div>
-      <button id="leaveLobbyBtn" class="ghost danger">방 나가기</button>
     </div>
     ${chatPreviewHTML()}
     <button class="chat-fab icon-btn" id="chatFab">💬</button>
@@ -435,14 +435,14 @@ function renderExchangeSummary() {
   const rightSeat = (mySeat + 1) % 4;
   const topSeat = (mySeat + 2) % 4;
   const leftSeat = (mySeat + 3) % 4;
-  const labelFor = (s) => s === topSeat ? "파트너" : s === rightSeat ? "오른쪽 사람" : s === leftSeat ? "왼쪽 사람" : "?";
+  const labelFor = (s) => s === topSeat ? "팀원" : s === rightSeat ? "오른쪽" : s === leftSeat ? "왼쪽" : "?";
   const data = exchangeSummaryData || [];
   const find = (s) => data.find((d) => d.from === s);
-  // 왼쪽 사람 - 파트너 - 오른쪽 사람 순서로 배치해서 아군(파트너)이 준 카드가 항상 가운데 오게 함
+  // 왼쪽 - 팀원 - 오른쪽 순서로 배치해서 아군(팀원)이 준 카드가 항상 가운데 오게 함
   const ordered = [find(leftSeat), find(topSeat), find(rightSeat)].filter(Boolean);
   const items = ordered.map(({ from, card }) => `
     <div class="received-item ${from === topSeat ? "partner-gift" : ""}">
-      <div class="label">${labelFor(from)}에게 받음</div>
+      <div class="label">${labelFor(from)}</div>
       ${cardHTML(card, { small: true })}
     </div>`).join("");
 
@@ -454,7 +454,7 @@ function renderExchangeSummary() {
   }
   backdrop.innerHTML = `
     <div class="modal exchange-modal-compact">
-      <h3 class="accent" style="font-size:20px">받은 카드</h3>
+      <h3 class="accent" style="font-size:20px">교환한 카드</h3>
       <div class="hand-actions" style="flex-wrap:wrap; gap:10px; justify-content:center;">${items}</div>
     </div>
   `;
@@ -467,6 +467,15 @@ function chatPreviewHTML() {
   return `<div class="chat-preview" id="chatPreview"><span class="who">${escapeHtml(last.name || "?")}</span>${escapeHtml(last.text)}</div>`;
 }
 
+function chatRowInlineHTML() {
+  const last = chatMessages.length ? chatMessages[chatMessages.length - 1] : null;
+  const preview = last ? `<span class="who">${escapeHtml(last.name || "?")}</span>${escapeHtml(last.text)}` : "채팅 없음";
+  return `<div class="chat-row">
+    <button class="icon-btn small" id="chatFab">💬</button>
+    <div class="chat-preview-inline" id="chatPreview">${preview}</div>
+  </div>`;
+}
+
 function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const viewerSeat = isSpectator ? 0 : mySeat;
   const rightSeat = (viewerSeat + 1) % 4;
@@ -474,6 +483,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const leftSeat = (viewerSeat + 3) % 4;
   const cancelVotes = state.cancelVotes || [];
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
+  const hasMenuContent = !isSpectator; // 지금은 메뉴에 취소투표만 있어서 관전자는 메뉴 자체가 필요 없음
 
   app.innerHTML = `
     <div class="table-wrap">
@@ -484,7 +494,8 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
         </div>
         <div class="topbar-right">
           <div class="chip" id="turnTimerChip"></div>
-          <button class="icon-btn" id="menuBtn">⋮</button>
+          ${hasMenuContent ? `<button class="icon-btn" id="menuBtn">⋮</button>` : ""}
+          <button class="icon-btn" id="leaveBtn" title="방 나가기">🚪</button>
         </div>
       </div>
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
@@ -500,14 +511,12 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
       <div class="hand-wrap">
         ${statusLine ? `<div class="status-line">${statusLine}</div>` : ""}
         ${bottomHtml}
+        ${chatRowInlineHTML()}
       </div>
     </div>
-    ${menuOpen ? `<div class="menu-dropdown">
-      ${!isSpectator ? `<button id="voteCancelMenuBtn" class="danger">게임 취소 제안</button>` : ""}
-      <button id="leaveBtn">방 나가기</button>
+    ${menuOpen && hasMenuContent ? `<div class="menu-dropdown">
+      <button id="voteCancelMenuBtn" class="danger">게임 취소 제안</button>
     </div>` : ""}
-    ${chatPreviewHTML()}
-    <button class="chat-fab icon-btn" id="chatFab">💬</button>
     ${chatOpen ? renderChatPanel() : ""}
   `;
 
@@ -539,7 +548,7 @@ function seatBoxHTML(seat, posClass, role) {
   const finished = state.finished[seat] ? " ✓" : "";
   const count = state.handCounts[seat];
   const connected = state.players[seat] && state.players[seat].connected;
-  const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat);
+  const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat) && state.turnSeat !== seat;
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
@@ -644,11 +653,9 @@ function renderPlay() {
   const bottomHtml = `
     <div class="hand-actions">
       <button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}" ${canCallSmall ? "" : "disabled"}>${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
-    </div>
-    <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
-    <div class="hand-actions">
       <button id="primaryActionBtn" class="primary" ${primaryEnabled ? "" : "disabled"}>${primaryLabel}</button>
     </div>
+    <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
 
   renderGameFrame({ centerHtml, bottomHtml, statusLine });
