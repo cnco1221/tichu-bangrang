@@ -3,6 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const { Room } = require("./game/Room");
+const accounts = require("./accounts");
 
 const app = express();
 const server = http.createServer(app);
@@ -12,6 +13,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const rooms = new Map(); // code -> Room
 const socketRoom = new Map(); // socketId -> code
+const adminSockets = new Set(); // 관리자모드로 로그인한 socket.id
+const loggedInNickname = new Map(); // socket.id -> 로그인한 회원 닉네임
 
 function genCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -48,6 +51,12 @@ function runBots(code, delay = 1500) {
 
 function afterMutation(code) {
   broadcast(code);
+  const room = rooms.get(code);
+  if (room && room.pendingRankedResult) {
+    const { winners, losers } = room.pendingRankedResult;
+    room.pendingRankedResult = null;
+    accounts.recordRankedResult(winners, losers).catch((e) => console.error("[ranked] 승패 기록 실패:", e.message));
+  }
   setTimeout(() => runBots(code), 1500); // 첫 봇 행동도 딜레이 적용(즉시 내는 버그 수정)
 }
 
@@ -72,7 +81,9 @@ io.on("connection", (socket) => {
   socket.on("createRoom", ({ name, token }, cb) => {
     const code = genCode();
     const room = makeRoom(code);
-    const seat = room.addPlayer(socket.id, (name || "").slice(0, 10), token);
+    const memberNickname = loggedInNickname.get(socket.id) || null;
+    const displayName = memberNickname || (name || "").slice(0, 10);
+    const seat = room.addPlayer(socket.id, displayName, token, memberNickname);
     socketRoom.set(socket.id, code);
     socket.join(code);
     cb && cb({ ok: true, code, seat });
@@ -96,14 +107,15 @@ io.on("connection", (socket) => {
       }
     }
 
-    const trimmedName = (name || "").slice(0, 10);
+    const memberNickname = loggedInNickname.get(socket.id) || null;
+    const trimmedName = memberNickname || (name || "").slice(0, 10);
     if (asSpectator || room.isFull()) {
       room.addSpectator(socket.id, trimmedName);
       socketRoom.set(socket.id, code);
       socket.join(code);
       cb && cb({ ok: true, code, seat: null, spectator: true });
     } else {
-      const seat = room.addPlayer(socket.id, trimmedName, token);
+      const seat = room.addPlayer(socket.id, trimmedName, token, memberNickname);
       socketRoom.set(socket.id, code);
       socket.join(code);
       cb && cb({ ok: true, code, seat });
@@ -142,6 +154,92 @@ io.on("connection", (socket) => {
     if (!room || seat === -1) return;
     room.setFixedSeats(enabled);
     broadcast(code);
+  });
+
+  socket.on("setRanked", ({ enabled }) => {
+    const { room, seat, code } = getRoomSeat(socket);
+    if (!room || seat === -1) return;
+    room.setRanked(enabled);
+    broadcast(code);
+  });
+
+  /* ---------------- 회원가입 / 로그인 ---------------- */
+
+  socket.on("signup", async ({ name, nickname, password }, cb) => {
+    const res = await accounts.signup({ name, nickname, password });
+    cb && cb(res);
+  });
+
+  socket.on("login", async ({ nickname, password }, cb) => {
+    const res = await accounts.login({ nickname, password });
+    if (res.ok) loggedInNickname.set(socket.id, res.nickname);
+    cb && cb(res);
+  });
+
+  socket.on("logout", (_, cb) => {
+    loggedInNickname.delete(socket.id);
+    cb && cb({ ok: true });
+  });
+
+  socket.on("getRanking", async (_, cb) => {
+    const res = await accounts.getRanking();
+    cb && cb(res);
+  });
+
+  /* ---------------- 관리자모드 ---------------- */
+
+  socket.on("adminLogin", async ({ password }, cb) => {
+    const res = await accounts.adminLogin(password);
+    if (res.ok) adminSockets.add(socket.id);
+    cb && cb(res);
+  });
+
+  socket.on("adminLogout", (_, cb) => {
+    adminSockets.delete(socket.id);
+    cb && cb({ ok: true });
+  });
+
+  function requireAdmin(cb) {
+    if (!adminSockets.has(socket.id)) {
+      cb && cb({ error: "관리자 로그인이 필요해요" });
+      return false;
+    }
+    return true;
+  }
+
+  socket.on("adminChangePassword", async ({ newPassword }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminChangePassword(newPassword));
+  });
+
+  socket.on("adminListPending", async (_, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb({ ok: true, pending: await accounts.adminListPending() });
+  });
+
+  socket.on("adminApprove", async ({ nickname }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminApprove(nickname));
+  });
+
+  socket.on("adminReject", async ({ nickname }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminReject(nickname));
+  });
+
+  socket.on("adminListMembers", async (_, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb({ ok: true, members: await accounts.adminListMembers() });
+  });
+
+  socket.on("adminDeleteMember", async ({ nickname }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminDeleteMember(nickname));
+  });
+
+  socket.on("adminResetPassword", async ({ nickname, newPassword }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminResetPassword(nickname, newPassword));
   });
 
   socket.on("addBot", (_, cb) => {
@@ -254,6 +352,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    adminSockets.delete(socket.id);
+    loggedInNickname.delete(socket.id);
     const code = socketRoom.get(socket.id);
     if (!code) return;
     const room = rooms.get(code);
