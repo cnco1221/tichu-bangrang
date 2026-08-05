@@ -27,6 +27,7 @@ class Room {
     this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
     this.actionSeq = 0;
     this.fixedSeats = false; // true면 게임 시작 시 좌석을 섞지 않고 그대로 시작
+    this.EXCHANGE_SUMMARY_DELAY_MS = 3200; // 교환 완료 후 실제 플레이 시작까지 대기(클라 요약화면과 맞춤). 테스트에서 0으로 낮춰 씀
     this.resetHandState();
   }
 
@@ -65,6 +66,14 @@ class Room {
     const humanCount = this.players.filter((p) => p && !p.isBot).length;
     if (humanCount === 0) return false; // 최소 한 자리는 사람이어야 함(전원 봇 방지)
     this.players[seat] = { socketId: null, name: `봇${seat + 1}`, ready: true, connected: true, abandonCount: 0, isBot: true };
+    return true;
+  }
+
+  removeBot(seat) {
+    if (this.phase !== "lobby") return false;
+    const p = this.players[seat];
+    if (!p || !p.isBot) return false;
+    this.players[seat] = null;
     return true;
   }
 
@@ -214,10 +223,17 @@ class Room {
       this.exchangeReceived[seat] = incoming[seat].map((x) => ({ from: x.from, card: x.card }));
     }
     const starter = this.hands.findIndex((h) => h.some((c) => c.special === "sparrow"));
-    this.turnSeat = starter === -1 ? 0 : starter;
-    this.currentTrick.leaderSeat = this.turnSeat;
+    const startSeat = starter === -1 ? 0 : starter;
     this.phase = "play";
-    this._armTimer();
+    this.turnSeat = null; // 클라이언트가 "받은 카드" 요약을 보여주는 동안 아무도(봇 포함) 못 내게 잠금
+    this.currentTrick.leaderSeat = startSeat;
+    const room = this;
+    setTimeout(() => {
+      if (room.phase !== "play" || room.turnSeat !== null) return; // 그 사이 취소/무효 처리됐으면 무시
+      room.turnSeat = startSeat;
+      room._armTimer();
+      room.notify(room.code);
+    }, this.EXCHANGE_SUMMARY_DELAY_MS); // 클라이언트의 3초 요약 화면보다 살짝 길게
   }
 
   callTichu(seat) {
