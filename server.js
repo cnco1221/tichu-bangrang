@@ -36,7 +36,7 @@ function broadcast(code) {
   }
 }
 
-function runBots(code, delay = 1300) {
+function runBots(code, delay = 1500) {
   const room = rooms.get(code);
   if (!room) return;
   const acted = room.botAct();
@@ -144,6 +144,15 @@ io.on("connection", (socket) => {
     afterMutation(code);
   });
 
+  socket.on("removeBot", ({ seat }, cb) => {
+    const { room, code } = getRoomCode(socket);
+    if (!room) return cb && cb({ error: "방에 먼저 들어가야 해요" });
+    const ok = room.removeBot(seat);
+    if (!ok) return cb && cb({ error: "그 봇을 뺄 수 없어요" });
+    cb && cb({ ok: true });
+    broadcast(code);
+  });
+
   socket.on("setReady", ({ ready }) => {
     const { room, seat, code } = getRoomSeat(socket);
     if (!room || seat === -1) return;
@@ -238,9 +247,9 @@ io.on("connection", (socket) => {
     if (!room) return;
     room.removeBySocket(socket.id);
     socketRoom.delete(socket.id);
-    const noPlayers = room.players.every((p) => p === null);
-    const noSpectators = room.spectators.length === 0;
-    if (noPlayers && noSpectators) rooms.delete(code);
+    const hasHumanPlayer = room.players.some((p) => p && !p.isBot);
+    const hasSpectator = room.spectators.length > 0;
+    if (!hasHumanPlayer && !hasSpectator) rooms.delete(code); // 사람이 아무도 없고 봇만(혹은 빈 자리만) 남으면 방 삭제
     else broadcast(code);
   });
 });
