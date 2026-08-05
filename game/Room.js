@@ -24,6 +24,8 @@ class Room {
     this.abortReason = null;
     this.turnTimer = null;
     this.turnDeadline = null;
+    this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
+    this.actionSeq = 0;
     this.resetHandState();
   }
 
@@ -40,6 +42,7 @@ class Room {
     this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
     this.turnSeat = null;
     this.pendingDragonChoice = null;
+    this.pendingDogTransfer = null; // 개를 낸 뒤 파트너에게 턴 넘기기 전 1초 대기(연출용 잠금)
     this.doubleWin = null;
     this.requestedRank = null;
     this.requestSatisfied = true;
@@ -191,6 +194,7 @@ class Room {
   playCards(seat, cardIds, opts = {}) {
     if (this.phase !== "play") return { error: "지금은 낼 수 없어요" };
     if (this.pendingDragonChoice !== null) return { error: "용 카드를 받을 사람을 먼저 정해주세요" };
+    if (this.pendingDogTransfer !== null) return { error: "개 카드가 전달되는 중이에요" };
     if (this.finished[seat]) return { error: "이미 낸 사람이에요" };
 
     const hand = this.hands[seat];
@@ -262,7 +266,16 @@ class Room {
 
     if (combo.type === "dog") {
       const mate = teammateOf(seat);
-      this._finishTrickAndLead(mate, { skipScoring: true });
+      this.turnSeat = null; // 1초간 아무도 못 냄 (개는 어차피 아무도 못 막음)
+      this.pendingDogTransfer = mate;
+      this._clearTimer();
+      const room = this;
+      setTimeout(() => {
+        if (room.phase !== "play" || room.pendingDogTransfer !== mate) return; // 그 사이 라운드/게임이 끝났으면 무시
+        room.pendingDogTransfer = null;
+        room._finishTrickAndLead(mate, { skipScoring: true, silent: true });
+        room.notify(room.code);
+      }, 1000);
       return this._afterPlayResult();
     }
 
@@ -290,6 +303,8 @@ class Room {
     }
 
     this.currentTrick.passCount = (this.currentTrick.passCount || 0) + 1;
+    this.lastAction = { type: "pass", seat };
+    this.actionSeq++;
 
     const activePlayers = [0, 1, 2, 3].filter((s) => !this.finished[s]);
     const needed = activePlayers.length - 1;
@@ -320,23 +335,27 @@ class Room {
     return { ok: true };
   }
 
-  _finishTrickAndLead(winnerSeat, { skipScoring } = {}) {
+  _finishTrickAndLead(winnerSeat, { skipScoring, silent } = {}) {
     if (!skipScoring && !this.currentTrick.plays.some((p) => p.combo.isDragon)) {
       const pile = this.currentTrick.plays.flatMap((p) => p.cards);
       this.wonPiles[winnerSeat].push(...pile);
     }
-    this._leadNext(winnerSeat);
+    this._leadNext(winnerSeat, { silent });
   }
 
-  _leadNext(seat) {
+  _leadNext(seat, opts = {}) {
     this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
-    this.requestedRank = null; // 새 라운드 트릭마다 요청 초기화? -> 실제로는 라운드(핸드) 전체에 걸쳐 유지되어야 하므로 여기서 지우지 않음
+    // 참새 요청은 라운드(핸드) 전체에 걸쳐 이행될 때까지 유지되어야 하므로 여기서 지우지 않는다.
     if (this.phase !== "play") return;
     let leader = seat;
     if (this.finished[leader]) leader = this._nextActiveSeat(leader);
     if (leader === null) return;
     this.turnSeat = leader;
     this.currentTrick.leaderSeat = leader;
+    if (!opts.silent) {
+      this.lastAction = { type: "trickStart", seat: leader };
+      this.actionSeq++;
+    }
     this._armTimer();
   }
 
@@ -555,7 +574,15 @@ class Room {
       const nonDog = hand.filter((c) => c.special !== "dog");
       const pool = nonDog.length > 0 ? nonDog : hand;
       const lowest = pool.slice().sort((a, b) => a.rank - b.rank)[0];
-      this.playCards(seat, [lowest.id], {});
+      const opts = {};
+      if (lowest.special === "sparrow") {
+        const myRanks = new Set(hand.filter((c) => !c.special).map((c) => c.rank));
+        const candidates = [];
+        for (let r = 2; r <= 14; r++) if (!myRanks.has(r)) candidates.push(r);
+        const pickPool = candidates.length ? candidates : Array.from({ length: 13 }, (_, i) => i + 2);
+        opts.requestRank = pickPool[Math.floor(Math.random() * pickPool.length)];
+      }
+      this.playCards(seat, [lowest.id], opts);
       return;
     }
 
@@ -594,10 +621,13 @@ class Room {
       finished: this.finished,
       finishOrder: this.finishOrder,
       pendingDragonChoice: this.pendingDragonChoice,
+      pendingDogTransfer: this.pendingDogTransfer,
       lastHandSummary: this.lastHandSummary || null,
       wonPileCounts: this.wonPiles.map((w) => w.length),
       cancelVotes: Array.from(this.cancelVotes),
       abortReason: this.abortReason,
+      lastAction: this.lastAction,
+      actionSeq: this.actionSeq,
     };
   }
 }
