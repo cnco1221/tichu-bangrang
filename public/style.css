@@ -96,8 +96,8 @@ input[type=text] {
 
 /* ---------- Compass Table ---------- */
 .table-wrap { height: 100%; width: 100%; max-width: 100vw; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; padding-top: env(safe-area-inset-top); }
-.topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,.15); position: relative; gap: 6px; row-gap: 4px; }
-.scoreboard { display: flex; gap: 8px; font-size: 11px; }
+.topbar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,.15); position: relative; gap: 6px; row-gap: 4px; }
+.scoreboard { display: flex; gap: 8px; font-size: 11px; position: absolute; left: 50%; transform: translateX(-50%); cursor: pointer; }
 .scoreboard .team { padding: 3px 8px; border-radius: 6px; background: var(--panel); white-space: nowrap; }
 .scoreboard .team.a { border-left: 3px solid var(--jade); }
 .scoreboard .team.b { border-left: 3px solid var(--sword); }

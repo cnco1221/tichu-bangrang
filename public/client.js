@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.10"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.12"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -96,6 +96,10 @@ function render() {
   if (!exchangeSummaryVisible) {
     const sumModal = document.querySelector(".modal-backdrop.summary-modal");
     if (sumModal) sumModal.remove();
+  }
+  if (!state || state.phase !== "roundEnd") {
+    const rsModal = document.querySelector(".floating-panel-wrap.round-summary-modal");
+    if (rsModal) rsModal.remove();
   }
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
@@ -488,7 +492,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   app.innerHTML = `
     <div class="table-wrap">
       <div class="topbar">
-        <div class="scoreboard">
+        <div class="scoreboard" id="scoreboardBtn">
           <div class="team a">팀A ${state.teamScores[0]}</div>
           <div class="team b">팀B ${state.teamScores[1]}</div>
         </div>
@@ -520,6 +524,8 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
     ${chatOpen ? renderChatPanel() : ""}
   `;
 
+  const scoreboardBtn = document.getElementById("scoreboardBtn");
+  if (scoreboardBtn) scoreboardBtn.onclick = () => openRoundHistoryModal();
   const menuBtn = document.getElementById("menuBtn");
   if (menuBtn) menuBtn.onclick = () => { menuOpen = !menuOpen; render(); };
   const leaveBtn = document.getElementById("leaveBtn");
@@ -643,17 +649,17 @@ function renderPlay() {
   const isLeading = trick.lastCombo === null;
   const canCallSmall = !isSpectator && !state.tichuCalled[mySeat] && myHand.length === 14 && !state.finished[mySeat];
 
-  const primaryLabel = selected.size > 0 ? "내기" : "패스";
   const selectedCards = Array.from(selected).map((id) => myHand.find((c) => c.id === id)).filter(Boolean);
   const selectedIsBomb = selectedCards.length > 0 && isLikelyBomb(selectedCards);
-  const canAttemptPlay = !isSpectator && !state.finished[mySeat] && state.pendingDragonChoice === null && (isMyTurn || selectedIsBomb);
-  const primaryEnabled = selected.size > 0 ? canAttemptPlay : (isMyTurn && !isLeading);
+  const canAttemptPlay = selected.size > 0 && !isSpectator && !state.finished[mySeat] && state.pendingDragonChoice === null && (isMyTurn || selectedIsBomb);
+  const canPass = !isSpectator && isMyTurn && !isLeading;
 
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
   const bottomHtml = `
     <div class="hand-actions">
       <button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}" ${canCallSmall ? "" : "disabled"}>${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
-      <button id="primaryActionBtn" class="primary" ${primaryEnabled ? "" : "disabled"}>${primaryLabel}</button>
+      <button id="passBtn" ${canPass ? "" : "disabled"}>패스</button>
+      <button id="playBtn" class="primary" ${canAttemptPlay ? "" : "disabled"}>내기</button>
     </div>
     <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
@@ -663,18 +669,16 @@ function renderPlay() {
   document.querySelectorAll(".hand-cards .card").forEach((el) => {
     el.onclick = () => { const id = el.dataset.id; if (selected.has(id)) selected.delete(id); else selected.add(id); render(); };
   });
-  const primaryBtn = document.getElementById("primaryActionBtn");
-  if (primaryBtn) primaryBtn.onclick = () => {
-    if (selected.size > 0) {
-      const ids = Array.from(selected);
-      const cards = ids.map((id) => myHand.find((c) => c.id === id));
-      const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
-      if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
-      else submitPlay(ids, null);
-    } else {
-      socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
-    }
+  const playBtn = document.getElementById("playBtn");
+  if (playBtn) playBtn.onclick = () => {
+    const ids = Array.from(selected);
+    const cards = ids.map((id) => myHand.find((c) => c.id === id));
+    const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
+    if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
+    else submitPlay(ids, null);
   };
+  const passBtn = document.getElementById("passBtn");
+  if (passBtn) passBtn.onclick = () => socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
   const smallBtn = document.getElementById("smallTichuBtn");
   if (smallBtn) smallBtn.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
 
@@ -832,21 +836,51 @@ function wireGlobalChatPanel() {
 /* ---------------- Round End ---------------- */
 function renderRoundEnd() {
   const s = state.lastHandSummary || { teamPoints: { 0: 0, 1: 0 }, bonuses: { 0: 0, 1: 0 }, doubleWin: null };
-  app.innerHTML = `
-    <div class="lobby">
-      <h2 class="accent" style="font-size:32px">라운드 결과</h2>
+  const centerHtml = `<div class="trick-empty">라운드 종료</div>`;
+  const bottomHtml = !isSpectator
+    ? `<div class="hand-actions"><button class="primary" id="nextHandBtn">다음 라운드</button></div>`
+    : `<div class="status-line">관전 중</div>`;
+  renderGameFrame({ centerHtml, bottomHtml, statusLine: "" });
+  const btn = document.getElementById("nextHandBtn");
+  if (btn) btn.onclick = () => socket.emit("nextHand");
+
+  let backdrop = document.querySelector(".floating-panel-wrap.round-summary-modal");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.className = "floating-panel-wrap round-summary-modal";
+    document.body.appendChild(backdrop);
+  }
+  backdrop.innerHTML = `
+    <div class="modal exchange-modal-compact">
+      <h3 class="accent" style="font-size:20px">${state.roundHistory ? state.roundHistory.length : ""}라운드 결과</h3>
       ${s.doubleWin !== null ? `<div class="status-line">${TEAM_NAME[s.doubleWin]} 더블윈! (+200)</div>` : ""}
       <table class="summary-table">
         <tr><th></th><th>${TEAM_NAME[0]}</th><th>${TEAM_NAME[1]}</th></tr>
-        <tr><td>이번 라운드 점수</td><td>${s.teamPoints[0]}</td><td>${s.teamPoints[1]}</td></tr>
+        <tr><td>이번 점수</td><td>${s.teamPoints[0]}</td><td>${s.teamPoints[1]}</td></tr>
         <tr><td>티츄 보너스</td><td>${s.bonuses[0]}</td><td>${s.bonuses[1]}</td></tr>
-        <tr><td><b>누적 점수</b></td><td><b>${state.teamScores[0]}</b></td><td><b>${state.teamScores[1]}</b></td></tr>
+        <tr><td><b>누적</b></td><td><b>${state.teamScores[0]}</b></td><td><b>${state.teamScores[1]}</b></td></tr>
       </table>
-      ${!isSpectator ? `<button class="primary" id="nextHandBtn">다음 라운드</button>` : `<div class="status-line">관전 중</div>`}
     </div>
   `;
-  const btn = document.getElementById("nextHandBtn");
-  if (btn) btn.onclick = () => socket.emit("nextHand");
+}
+
+function openRoundHistoryModal() {
+  const history = state.roundHistory || [];
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:280px;">
+      <h3 class="accent" style="font-size:22px">라운드별 점수</h3>
+      <table class="summary-table">
+        <tr><th>라운드</th><th>${TEAM_NAME[0]}</th><th>${TEAM_NAME[1]}</th></tr>
+        ${history.length
+          ? history.map((h) => `<tr><td>${h.round}</td><td>${h.teamPoints[0]}</td><td>${h.teamPoints[1]}</td></tr>`).join("")
+          : `<tr><td colspan="3">아직 끝난 라운드가 없어요</td></tr>`}
+      </table>
+      <button id="closeHistory" class="ghost">닫기</button>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("closeHistory").onclick = () => backdrop.remove();
 }
 
 /* ---------------- Game Over ---------------- */
@@ -917,6 +951,25 @@ function playTrickStartSound() {
   } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
 }
 
+function playPassSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(320, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.12);
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.15);
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
 let lastTrickPlayCount = 0;
 function checkPlaySound(newState) {
   if (newState && newState.currentTrick) {
@@ -931,6 +984,7 @@ function checkActionEvents(s) {
   if (s && typeof s.actionSeq === "number" && s.actionSeq > lastSeenActionSeq) {
     lastSeenActionSeq = s.actionSeq;
     if (s.lastAction && s.lastAction.type === "trickStart") playTrickStartSound();
+    if (s.lastAction && s.lastAction.type === "pass") playPassSound();
   }
 }
 
