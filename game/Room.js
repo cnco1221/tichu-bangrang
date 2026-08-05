@@ -62,6 +62,8 @@ class Room {
 
   addBot(seat) {
     if (this.players[seat]) return false;
+    const humanCount = this.players.filter((p) => p && !p.isBot).length;
+    if (humanCount === 0) return false; // 최소 한 자리는 사람이어야 함(전원 봇 방지)
     this.players[seat] = { socketId: null, name: `봇${seat + 1}`, ready: true, connected: true, abandonCount: 0, isBot: true };
     return true;
   }
@@ -118,18 +120,20 @@ class Room {
     if (this.phase !== "lobby") return false;
     const p = this.players[seat];
     if (!p) return false;
+    const humanCount = this.players.filter((x) => x && !x.isBot).length;
+    if (!p.isBot && humanCount <= 1) return false; // 남은 사람이 한 명뿐이면 관전으로 못 감
     this.players[seat] = null;
     this.spectators.push({ socketId: p.socketId, name: p.name });
     return true;
   }
 
-  swapSeats(seatA, seatB) {
+  // 자리 교체는 사람과 맞바꾸는 게 아니라 "빈 자리로 이동"만 가능
+  moveToEmptySeat(fromSeat, toSeat) {
     if (this.phase !== "lobby") return false;
-    if (seatA === seatB) return false;
-    if (!this.players[seatA] || !this.players[seatB]) return false;
-    const tmp = this.players[seatA];
-    this.players[seatA] = this.players[seatB];
-    this.players[seatB] = tmp;
+    if (!this.players[fromSeat]) return false;
+    if (this.players[toSeat]) return false; // 목적지가 비어있어야 함
+    this.players[toSeat] = this.players[fromSeat];
+    this.players[fromSeat] = null;
     return true;
   }
 
