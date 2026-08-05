@@ -27,6 +27,8 @@ class Room {
     this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
     this.actionSeq = 0;
     this.fixedSeats = false; // true면 게임 시작 시 좌석을 섞지 않고 그대로 시작
+    this.ranked = false; // 등급전이면 무조건 팀 랜덤 + 종료 시 승/패 기록
+    this.pendingRankedResult = null; // { winners:[nickname], losers:[nickname] } - 서버가 소비 후 null로 비움
     this.roundHistory = []; // [{ round, teamPoints: {0,1} }, ...] - 라운드별 점수 기록(게임 전체 기준)
     this.EXCHANGE_SUMMARY_DELAY_MS = 3200; // 교환 완료 후 실제 플레이 시작까지 대기(클라 요약화면과 맞춤). 테스트에서 0으로 낮춰 씀
     this.resetHandState();
@@ -57,10 +59,10 @@ class Room {
 
   /* ---------------- 좌석 / 관전자 ---------------- */
 
-  addPlayer(socketId, name, token) {
+  addPlayer(socketId, name, token, memberNickname) {
     const seat = this.players.findIndex((p) => p === null);
     if (seat === -1) return null;
-    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false, token: token || null, disconnectTimer: null };
+    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false, token: token || null, disconnectTimer: null, memberNickname: memberNickname || null };
     return seat;
   }
 
@@ -173,7 +175,14 @@ class Room {
 
   setFixedSeats(enabled) {
     if (this.phase !== "lobby") return;
+    if (this.ranked && enabled) return; // 등급전이면 지정석을 켤 수 없음
     this.fixedSeats = !!enabled;
+  }
+
+  setRanked(enabled) {
+    if (this.phase !== "lobby") return;
+    this.ranked = !!enabled;
+    if (this.ranked) this.fixedSeats = false; // 등급전은 무조건 팀 랜덤(지정석 해제+잠금)
   }
 
   _shuffleSeats() {
@@ -227,9 +236,9 @@ class Room {
 
   _armExchangeTimer() {
     this._clearExchangeTimer();
-    this.exchangeDeadline = Date.now() + 60000;
+    this.exchangeDeadline = Date.now() + 30000;
     const room = this;
-    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 60000);
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
   }
 
   _clearExchangeTimer() {
@@ -597,6 +606,16 @@ class Room {
 
     if (this.teamScores[0] >= TARGET_SCORE || this.teamScores[1] >= TARGET_SCORE) {
       this.phase = "gameover";
+      if (this.ranked) {
+        const winningTeam = this.teamScores[0] > this.teamScores[1] ? 0 : 1;
+        const winners = [], losers = [];
+        for (let s = 0; s < 4; s++) {
+          const p = this.players[s];
+          if (!p || !p.memberNickname) continue;
+          (TEAM_OF_SEAT[s] === winningTeam ? winners : losers).push(p.memberNickname);
+        }
+        if (winners.length || losers.length) this.pendingRankedResult = { winners, losers };
+      }
     }
   }
 
@@ -798,6 +817,7 @@ class Room {
       actionSeq: this.actionSeq,
       lastDragonGift: this.lastDragonGift,
       fixedSeats: this.fixedSeats,
+      ranked: this.ranked,
       roundHistory: this.roundHistory,
     };
   }
