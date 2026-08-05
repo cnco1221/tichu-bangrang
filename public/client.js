@@ -1,8 +1,13 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.12"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.13"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
+let myToken = localStorage.getItem("tichu_token");
+if (!myToken) {
+  myToken = "t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
+  localStorage.setItem("tichu_token", myToken);
+}
 let myRoom = localStorage.getItem("tichu_room") || "";
 let mySeat = null;
 let isSpectator = false;
@@ -144,7 +149,7 @@ function renderLanding() {
         <div class="suit-chip" style="color:${SUIT_COLOR.pagoda}">●</div>
         <div class="suit-chip" style="color:${SUIT_COLOR.star}">★</div>
       </div>
-      <div class="title accent">티츄</div>
+      <div class="title accent">방랑단 티츄</div>
       <div class="subtitle">TICHU · 4인 실시간 트릭테이킹</div>
       <form id="nameForm">
         <input type="text" id="nameInput" placeholder="닉네임 (최대 10자)" value="${myName}" maxlength="10" required />
@@ -152,7 +157,6 @@ function renderLanding() {
           <button class="primary" type="submit" id="createBtn">새 방 만들기</button>
         </div>
       </form>
-      <div class="divider">— 또는 —</div>
       <div class="room-list-wrap">
         <div class="room-list-header">
           <span>열려있는 방 (${openRooms.length})</span>
@@ -163,20 +167,13 @@ function renderLanding() {
             ? openRooms.map((r) => `<div class="room-list-row">
                 <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}</div>
                 <div class="room-list-btns">
-                  <button class="small" data-join="${r.code}">입장</button>
+                  <button class="small primary" data-join="${r.code}">입장</button>
                   <button class="small ghost" data-spectate="${r.code}">관전 입장</button>
                 </div>
               </div>`).join("")
             : `<div class="hint">참가 가능한 방이 없어요</div>`}
         </div>
       </div>
-      <form id="joinForm">
-        <input type="text" id="codeInput" placeholder="방 코드 (예: ABCD)" value="${myRoom}" maxlength="4" required />
-        <div class="row">
-          <button type="submit" id="joinBtn">참가하기</button>
-          <button type="button" id="spectateBtn">관전하기</button>
-        </div>
-      </form>
     </div>
     <div class="version-badge">v${APP_VERSION}</div>
     <button class="chat-fab icon-btn" id="globalChatFab">💬</button>
@@ -190,24 +187,21 @@ function renderLanding() {
     e.preventDefault();
     myName = getName();
     localStorage.setItem("tichu_name", myName);
-    socket.emit("createRoom", { name: myName }, (res) => {
+    socket.emit("createRoom", { name: myName, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = false;
       localStorage.setItem("tichu_room", myRoom);
     });
   };
-  const doJoin = (asSpectator, codeOverride) => {
+  const doJoin = (asSpectator, code) => {
     myName = getName();
-    const code = codeOverride || document.getElementById("codeInput").value.trim().toUpperCase();
     localStorage.setItem("tichu_name", myName);
-    socket.emit("joinRoom", { code, name: myName, asSpectator }, (res) => {
+    socket.emit("joinRoom", { code, name: myName, asSpectator, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = !!res.spectator;
       localStorage.setItem("tichu_room", myRoom);
     });
   };
-  document.getElementById("joinForm").onsubmit = (e) => { e.preventDefault(); doJoin(false); };
-  document.getElementById("spectateBtn").onclick = () => doJoin(true);
   document.getElementById("refreshRoomsBtn").onclick = () => fetchRoomList(true);
   document.querySelectorAll("[data-join]").forEach((b) => b.onclick = () => doJoin(false, b.dataset.join));
   document.querySelectorAll("[data-spectate]").forEach((b) => b.onclick = () => doJoin(true, b.dataset.spectate));
@@ -236,7 +230,7 @@ function renderLobby() {
     return `<div class="seat-card filled ${p.ready ? "ready" : ""}">
       ${p.ready ? `<div class="ready-tag">준비완료</div>` : ""}
       <div class="team-tag">${i % 2 === 0 ? "팀 A" : "팀 B"} · 좌석 ${i + 1}</div>
-      <div>${p.name}${p.isBot ? " 🤖" : ""}${i === mySeat ? " (나)" : ""}</div>
+      <div class="seat-name">${p.name}${p.isBot ? " 🤖" : ""}${i === mySeat ? " (나)" : ""}</div>
       ${p.isBot ? `<button class="small ghost" data-removebot="${i}">봇 빼기</button>` : ""}
     </div>`;
   }).join("");
@@ -247,7 +241,7 @@ function renderLobby() {
   const canGoSpectate = !isSpectator && humanCount > 1;
 
   app.innerHTML = `
-    <button class="icon-btn top-right-fixed" id="leaveLobbyBtn" title="방 나가기">🚪</button>
+    <button class="icon-btn text-btn top-right-fixed" id="leaveLobbyBtn">방 나가기</button>
     <div class="lobby">
       <div>방 코드</div>
       <div class="room-code">${state.code}</div>
@@ -327,12 +321,12 @@ function renderGrand() {
 
   const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}`;
   const bottomHtml = isSpectator ? "" : `
-    <div class="hand-cards">${myHand}</div>
     <div class="hand-actions">
       <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜! (+200/-200)"}</button>
       <button class="${isPendingSmall ? "danger" : "ghost"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
       <button id="grandNo" ${locked ? "disabled" : ""}>패스</button>
     </div>
+    <div class="hand-cards">${myHand}</div>
   `;
   const statusLine = isSpectator ? "관전 중 — 라지티츄 결정 대기" : (locked ? "선택 완료 — 다른 플레이어를 기다리는 중" : "처음 8장을 보고 라지티츄·스몰티츄·패스 중 하나를 고르세요");
 
@@ -499,7 +493,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
         <div class="topbar-right">
           <div class="chip" id="turnTimerChip"></div>
           ${hasMenuContent ? `<button class="icon-btn" id="menuBtn">⋮</button>` : ""}
-          <button class="icon-btn" id="leaveBtn" title="방 나가기">🚪</button>
+          <button class="icon-btn text-btn" id="leaveBtn">방 나가기</button>
         </div>
       </div>
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
@@ -553,9 +547,12 @@ function seatBoxHTML(seat, posClass, role) {
   const badge = tichu === "large" ? `<span class="badge large">라지</span>` : tichu === "small" ? `<span class="badge">스몰</span>` : "";
   const finished = state.finished[seat] ? " ✓" : "";
   const count = state.handCounts[seat];
-  const connected = state.players[seat] && state.players[seat].connected;
+  const p = state.players[seat];
+  const connected = p && p.connected;
+  const abandonCount = p ? (p.abandonCount || 0) : 0;
   const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat) && state.turnSeat !== seat;
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
+    ${abandonCount > 0 ? `<div class="abandon-tag">잠수 ${abandonCount}/3</div>` : ""}
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
     ${hasPassed ? `<div class="pass-tag">패스</div>` : ""}
@@ -1050,7 +1047,20 @@ socket.on("chatMessage", (m) => {
   }
   render(); // 채팅창이 닫혀있어도 말풍선 갱신을 위해 항상 리렌더
 });
-socket.on("connect", () => render());
+socket.on("connect", () => {
+  // 네트워크가 잠깐 끊겼다가 소켓이 자동 재연결된 경우: 원래 있던 방/좌석으로 자동 복귀 시도
+  if (myRoom && (mySeat !== null || isSpectator)) {
+    socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
+      if (res && res.ok) {
+        if (typeof res.seat === "number") mySeat = res.seat;
+        isSpectator = !!res.spectator;
+      }
+      render();
+    });
+  } else {
+    render();
+  }
+});
 socket.on("globalChatMessage", (m) => {
   globalChatMessages.push(m);
   if (globalChatMessages.length > 100) globalChatMessages.shift();

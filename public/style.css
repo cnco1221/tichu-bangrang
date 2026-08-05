@@ -57,6 +57,7 @@ button.ghost { background: transparent; }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button.small { padding: 6px 10px; font-size: 12px; }
 button.icon-btn { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 17px; flex-shrink: 0; }
+button.icon-btn.text-btn { width: auto; height: auto; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; color: var(--danger); border-color: var(--danger); }
 
 input[type=text] {
   background: var(--lacquer-2); border: 1px solid var(--panel-line); color: var(--ivory);
@@ -64,10 +65,10 @@ input[type=text] {
 }
 
 /* ---------- Landing ---------- */
-.landing { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; text-align: center; padding: 20px; }
-.landing .title { font-size: clamp(40px, 12vw, 56px); letter-spacing: 4px; }
-.landing .subtitle { color: var(--ivory-dim); font-size: 12px; letter-spacing: 1.5px; text-align: center; }
-.landing .cards-row { display: flex; gap: 10px; margin: 6px 0 14px; }
+.landing { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: calc(28px + env(safe-area-inset-top)); gap: 12px; text-align: center; padding-left: 20px; padding-right: 20px; padding-bottom: 20px; overflow-y: auto; }
+.landing .title { font-size: clamp(32px, 9vw, 44px); letter-spacing: 3px; }
+.landing .subtitle { color: var(--ivory-dim); font-size: 12px; letter-spacing: 1.5px; text-align: center; margin-bottom: 4px; }
+.landing .cards-row { display: flex; gap: 10px; margin: 2px 0 4px; }
 .landing .suit-chip { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 1px solid var(--panel-line); background: var(--panel); }
 .landing form { display: flex; flex-direction: column; gap: 8px; width: min(280px, 84vw); }
 .landing .row { display: flex; gap: 8px; }
@@ -78,8 +79,8 @@ input[type=text] {
 .room-list-wrap { width: min(320px, 90vw); display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .room-list-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ivory-dim); }
 .room-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
-.room-list-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 8px; padding: 6px 10px; }
-.room-list-info { font-size: 12px; text-align: left; }
+.room-list-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--lacquer-2); border: 1px solid var(--jade); border-radius: 8px; padding: 8px 10px; }
+.room-list-info { font-size: 12px; text-align: left; font-weight: 700; color: var(--ivory); }
 .room-list-btns { display: flex; gap: 6px; flex-shrink: 0; }
 .room-list-btns button { padding: 5px 9px; font-size: 11px; }
 
@@ -88,6 +89,7 @@ input[type=text] {
 .room-code { letter-spacing: 8px; font-size: 34px; color: var(--gold-soft); font-family: 'Noto Serif KR'; }
 .seat-grid { display: grid; grid-template-columns: repeat(2, 150px); gap: 14px; }
 .seat-card { border: 1px solid var(--panel-line); background: var(--panel); border-radius: 12px; padding: 14px; text-align: center; min-height: 76px; display: flex; flex-direction: column; justify-content: center; gap: 4px; position: relative; }
+.seat-card .seat-name { font-size: 16px; font-weight: 700; color: var(--ivory); }
 .seat-card.filled { border-color: var(--jade); }
 .seat-card.ready { border-color: var(--gold); box-shadow: 0 0 10px rgba(201,162,75,.35); }
 .seat-card .team-tag { font-size: 10px; color: var(--ivory-dim); letter-spacing: 1px; }
@@ -112,13 +114,14 @@ input[type=text] {
 }
 .seat-box.turn { border-color: var(--gold); box-shadow: 0 0 12px rgba(201,162,75,.45); }
 .seat-box .role { font-family: 'Noto Serif KR'; font-weight: 700; color: var(--ivory); font-size: 13px; }
-.seat-box .nick { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.seat-box .nick { font-size: 12px; font-weight: 700; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .seat-box .count { font-size: 9px; color: var(--gold-soft); }
 .seat-box .badge { font-size: 8px; padding: 1px 5px; border-radius: 8px; background: var(--jade); color: #06231a; }
 .seat-box .badge.large { background: var(--gold-soft); }
 .seat-box.disconnected { opacity: .4; }
 
 .pass-tag { font-size: 9px; font-weight: 700; color: var(--sword); }
+.abandon-tag { font-size: 9px; font-weight: 700; color: #fff; background: var(--danger); padding: 1px 6px; border-radius: 8px; }
 
 .dragon-gift-tag {
   position: absolute; top: 6px; left: 8px;
