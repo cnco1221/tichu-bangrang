@@ -58,6 +58,17 @@ function makeRoom(code) {
 }
 
 io.on("connection", (socket) => {
+  socket.on("listRooms", (_, cb) => {
+    const list = [];
+    for (const [code, room] of rooms.entries()) {
+      if (room.phase !== "lobby") continue;
+      const playerCount = room.players.filter((p) => p).length;
+      if (playerCount === 0) continue;
+      list.push({ code, playerCount, spectatorCount: room.spectators.length });
+    }
+    cb && cb({ rooms: list });
+  });
+
   socket.on("createRoom", ({ name }, cb) => {
     const code = genCode();
     const room = makeRoom(code);
@@ -104,11 +115,11 @@ io.on("connection", (socket) => {
     broadcast(code);
   });
 
-  socket.on("swapSeat", ({ targetSeat }, cb) => {
+  socket.on("moveSeat", ({ targetSeat }, cb) => {
     const { room, seat, code } = getRoomSeat(socket);
     if (!room || seat === -1) return cb && cb({ error: "먼저 자리에 앉아야 해요" });
-    const ok = room.swapSeats(seat, targetSeat);
-    if (!ok) return cb && cb({ error: "자리를 바꿀 수 없어요" });
+    const ok = room.moveToEmptySeat(seat, targetSeat);
+    if (!ok) return cb && cb({ error: "그 자리로 이동할 수 없어요" });
     cb && cb({ ok: true });
     broadcast(code);
   });
@@ -126,7 +137,8 @@ io.on("connection", (socket) => {
     if (room.phase !== "lobby") return cb && cb({ error: "게임 중에는 봇을 추가할 수 없어요" });
     const seat = room.players.findIndex((p) => p === null);
     if (seat === -1) return cb && cb({ error: "빈 자리가 없어요" });
-    room.addBot(seat);
+    const ok = room.addBot(seat);
+    if (!ok) return cb && cb({ error: "최소 한 자리는 사람이어야 해요(전원 봇으로는 채울 수 없어요)" });
     cb && cb({ ok: true, seat });
     if (room.players.every((p) => p !== null && p.ready)) room.startGame();
     afterMutation(code);
@@ -212,6 +224,11 @@ io.on("connection", (socket) => {
     const seat = room.seatBySocket(socket.id);
     const name = seat !== -1 ? room.players[seat].name : (room.spectators.find(s => s.socketId === socket.id) || {}).name;
     io.to(code).emit("chatMessage", { seat, name, text: String(text).slice(0, 200), ts: Date.now() });
+  });
+
+  socket.on("globalChatMessage", ({ text, name }) => {
+    if (!text) return;
+    io.emit("globalChatMessage", { name: (name || "익명").slice(0, 10), text: String(text).slice(0, 200), ts: Date.now() });
   });
 
   socket.on("disconnect", () => {
