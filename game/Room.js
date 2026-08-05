@@ -196,9 +196,9 @@ class Room {
 
   _armExchangeTimer() {
     this._clearExchangeTimer();
-    this.exchangeDeadline = Date.now() + 60000;
+    this.exchangeDeadline = Date.now() + 30000;
     const room = this;
-    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 60000);
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
   }
 
   _clearExchangeTimer() {
@@ -339,12 +339,23 @@ class Room {
     }
 
     // 참새를 리드로 낼 때 요청 등록 (싱글 또는 스트레이트에 포함해서)
+    // 주의: _commitPlay보다 먼저 등록해버리면, 지금 내는 바로 그 조합 안에 요청 숫자가 포함돼 있을 때
+    // (예: 참새 포함 12345 스트레이트를 내면서 "5"를 콜) 자기 자신의 플레이로 즉시 이행 처리되는 버그가 생김.
+    // 그래서 등록은 _commitPlay가 끝난 뒤로 미룸.
+    let pendingRequestRank = null;
     if (isLeading && this.requestedRank === null && cards.some((c) => c.special === "sparrow")) {
       const r = opts.requestRank;
-      if (r && r >= 2 && r <= 14) { this.requestedRank = r; this.requestSatisfied = false; }
+      if (r && r >= 2 && r <= 14) pendingRequestRank = r;
     }
 
-    return this._commitPlay(seat, combo, cards, { interrupt: false });
+    const result = this._commitPlay(seat, combo, cards, { interrupt: false });
+
+    if (pendingRequestRank !== null) {
+      this.requestedRank = pendingRequestRank;
+      this.requestSatisfied = false;
+    }
+
+    return result;
   }
 
   _commitPlay(seat, combo, cards, { interrupt }) {
