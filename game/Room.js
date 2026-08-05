@@ -39,13 +39,14 @@ class Room {
     this.wonPiles = [[], [], [], []];
     this.finishOrder = [];
     this.finished = [false, false, false, false];
-    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
+    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null, passedSeats: [] };
     this.turnSeat = null;
     this.pendingDragonChoice = null;
     this.pendingDogTransfer = null; // 개를 낸 뒤 파트너에게 턴 넘기기 전 1초 대기(연출용 잠금)
     this.doubleWin = null;
     this.requestedRank = null;
     this.requestSatisfied = true;
+    this.lastDragonGift = null; // { from, to } - 용으로 이긴 트릭을 누구에게 줬는지(보드 표시용)
     this._clearTimer();
   }
 
@@ -215,6 +216,16 @@ class Room {
     }
 
     const isLeading = this.currentTrick.lastCombo === null;
+
+    // 봉황 싱글 파워 재계산: 리드면 1.5(참새보다 살짝 높음), 따라갈 때는 직전 싱글보다 +0.5
+    if (combo.isPhoenix && combo.type === "single") {
+      if (isLeading) {
+        combo.power = 1.5;
+      } else if (this.currentTrick.lastCombo.type === "single") {
+        combo.power = this.currentTrick.lastCombo.power + 0.5;
+      }
+    }
+
     if (combo.type === "dog" && !isLeading) return { error: "개는 리드할 때만 낼 수 있어요" };
 
     if (!isLeading && !isBombCombo) {
@@ -257,6 +268,7 @@ class Room {
 
     this.currentTrick.plays.push({ seat, combo, cards });
     this.currentTrick.passCount = 0;
+    this.currentTrick.passedSeats = this.currentTrick.passedSeats.filter((s) => s !== seat); // 다시 냈으니 그 사람의 "패스" 표시는 사라짐
 
     const wentOut = hand.length === 0;
     if (wentOut && !this.finished[seat]) {
@@ -303,6 +315,7 @@ class Room {
     }
 
     this.currentTrick.passCount = (this.currentTrick.passCount || 0) + 1;
+    if (!this.currentTrick.passedSeats.includes(seat)) this.currentTrick.passedSeats.push(seat);
     this.lastAction = { type: "pass", seat };
     this.actionSeq++;
 
@@ -330,6 +343,7 @@ class Room {
     if (TEAM_OF_SEAT[recipientSeat] === myTeam) return { error: "상대팀에게 줘야 해요" };
     const pile = this.currentTrick.plays.flatMap((p) => p.cards);
     this.wonPiles[recipientSeat].push(...pile);
+    this.lastDragonGift = { from: seat, to: recipientSeat };
     this.pendingDragonChoice = null;
     this._leadNext(seat);
     return { ok: true };
@@ -344,7 +358,7 @@ class Room {
   }
 
   _leadNext(seat, opts = {}) {
-    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
+    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null, passedSeats: [] };
     // 참새 요청은 라운드(핸드) 전체에 걸쳐 이행될 때까지 유지되어야 하므로 여기서 지우지 않는다.
     if (this.phase !== "play") return;
     let leader = seat;
@@ -394,10 +408,11 @@ class Room {
       const myTeam = TEAM_OF_SEAT[winner];
       const opp = [0, 1, 2, 3].find((s) => TEAM_OF_SEAT[s] !== myTeam);
       this.wonPiles[opp].push(...pile);
+      this.lastDragonGift = { from: winner, to: opp };
     } else if (lastCombo) {
       this.wonPiles[this.currentTrick.lastSeat].push(...pile);
     }
-    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null };
+    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null, passedSeats: [] };
     this.pendingDragonChoice = null;
   }
 
@@ -628,6 +643,7 @@ class Room {
       abortReason: this.abortReason,
       lastAction: this.lastAction,
       actionSeq: this.actionSeq,
+      lastDragonGift: this.lastDragonGift,
     };
   }
 }
