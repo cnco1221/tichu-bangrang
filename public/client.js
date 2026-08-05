@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.01"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.02"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myRoom = localStorage.getItem("tichu_room") || "";
@@ -117,13 +117,6 @@ function renderLanding() {
         </div>
       </form>
       <div class="divider">— 또는 —</div>
-      <form id="joinForm">
-        <input type="text" id="codeInput" placeholder="방 코드 (예: ABCD)" value="${myRoom}" maxlength="4" required />
-        <div class="row">
-          <button type="submit" id="joinBtn">참가하기</button>
-          <button type="button" id="spectateBtn">관전하기</button>
-        </div>
-      </form>
       <div class="room-list-wrap">
         <div class="room-list-header">
           <span>열려있는 방 (${openRooms.length})</span>
@@ -135,6 +128,13 @@ function renderLanding() {
             : `<div class="hint">참가 가능한 방이 없어요</div>`}
         </div>
       </div>
+      <form id="joinForm">
+        <input type="text" id="codeInput" placeholder="방 코드 (예: ABCD)" value="${myRoom}" maxlength="4" required />
+        <div class="row">
+          <button type="submit" id="joinBtn">참가하기</button>
+          <button type="button" id="spectateBtn">관전하기</button>
+        </div>
+      </form>
     </div>
     <div class="version-badge">v${APP_VERSION}</div>
     <button class="chat-fab icon-btn" id="globalChatFab">💬</button>
@@ -181,17 +181,25 @@ function fetchRoomList(rerender) {
 
 /* ---------------- Lobby ---------------- */
 function renderLobby() {
-  const seats = state.players.map((p, i) => `
-    <div class="seat-card ${p ? "filled" : ""} ${p && p.ready ? "ready" : ""}">
-      ${p && p.ready ? `<div class="ready-tag">준비완료</div>` : ""}
+  const canMove = !isSpectator && mySeat !== null;
+  const seats = state.players.map((p, i) => {
+    if (!p) {
+      return `<div class="seat-card">
+        <div class="team-tag">${i % 2 === 0 ? "팀 A" : "팀 B"} · 좌석 ${i + 1}</div>
+        <div>대기 중...</div>
+        ${canMove ? `<button class="small ghost" data-move="${i}">이 자리로 이동</button>` : ""}
+      </div>`;
+    }
+    return `<div class="seat-card filled ${p.ready ? "ready" : ""}">
+      ${p.ready ? `<div class="ready-tag">준비완료</div>` : ""}
       <div class="team-tag">${i % 2 === 0 ? "팀 A" : "팀 B"} · 좌석 ${i + 1}</div>
-      <div>${p ? p.name + (p.isBot ? " 🤖" : "") + (i === mySeat ? " (나)" : "") : "대기 중..."}</div>
-    </div>
-  `).join("");
+      <div>${p.name}${p.isBot ? " 🤖" : ""}${i === mySeat ? " (나)" : ""}</div>
+      ${p.isBot ? `<button class="small ghost" data-removebot="${i}">봇 빼기</button>` : ""}
+    </div>`;
+  }).join("");
   const myReady = mySeat !== null && state.players[mySeat] ? state.players[mySeat].ready : false;
   const hasEmptySeat = !state.players.every((p) => p !== null);
   const canJoinSeat = isSpectator && hasEmptySeat;
-  const canMove = !isSpectator && hasEmptySeat;
   const humanCount = state.players.filter((p) => p && !p.isBot).length;
   const canGoSpectate = !isSpectator && humanCount > 1;
 
@@ -204,7 +212,6 @@ function renderLobby() {
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
         ${hasEmptySeat ? `<button id="addBotBtn">봇 추가</button>` : ""}
         ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
-        ${canMove ? `<button id="moveSeatBtn" class="ghost">빈 자리로 이동</button>` : ""}
         ${canGoSpectate ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
       </div>
       <div class="spectator-bar">
@@ -217,6 +224,16 @@ function renderLobby() {
       <button id="leaveLobbyBtn" class="ghost danger">방 나가기</button>
     </div>
   `;
+  document.querySelectorAll("[data-move]").forEach((b) => b.onclick = () => {
+    const targetSeat = Number(b.dataset.move);
+    socket.emit("moveSeat", { targetSeat }, (res) => {
+      if (res && res.ok) { mySeat = targetSeat; render(); }
+      else if (res && res.error) showToast(res.error);
+    });
+  });
+  document.querySelectorAll("[data-removebot]").forEach((b) => b.onclick = () => {
+    socket.emit("removeBot", { seat: Number(b.dataset.removebot) }, (res) => { if (res && res.error) showToast(res.error); });
+  });
   const readyBtn = document.getElementById("readyBtn");
   if (readyBtn) readyBtn.onclick = () => socket.emit("setReady", { ready: !myReady });
   const addBotBtn = document.getElementById("addBotBtn");
@@ -231,25 +248,6 @@ function renderLobby() {
     if (res && res.ok) { isSpectator = true; mySeat = null; render(); }
     else if (res && res.error) showToast(res.error);
   });
-  const moveSeatBtn = document.getElementById("moveSeatBtn");
-  if (moveSeatBtn) moveSeatBtn.onclick = () => {
-    const empties = state.players.map((p, i) => (!p ? i : null)).filter((i) => i !== null);
-    const backdrop = document.createElement("div");
-    backdrop.className = "modal-backdrop";
-    backdrop.innerHTML = `<div class="modal"><h3>빈 자리로 이동</h3>
-      <div class="status-line">이동할 좌석을 선택하세요</div>
-      <div class="hand-actions" style="flex-wrap:wrap;">${empties.map((i) => `<button data-s="${i}">좌석 ${i + 1} (${i % 2 === 0 ? "팀A" : "팀B"})</button>`).join("")}</div>
-      <button id="cancelMove" class="ghost">취소</button></div>`;
-    document.body.appendChild(backdrop);
-    backdrop.querySelectorAll("[data-s]").forEach((b) => b.onclick = () => {
-      socket.emit("moveSeat", { targetSeat: Number(b.dataset.s) }, (res) => {
-        if (res && res.ok) { mySeat = Number(b.dataset.s); render(); }
-        else if (res && res.error) showToast(res.error);
-      });
-      backdrop.remove();
-    });
-    document.getElementById("cancelMove").onclick = () => backdrop.remove();
-  };
   const fixedSeatBtn = document.getElementById("fixedSeatBtn");
   if (fixedSeatBtn) fixedSeatBtn.onclick = () => socket.emit("setFixedSeats", { enabled: !state.fixedSeats });
   const showSpecBtn = document.getElementById("showSpecBtn");
@@ -464,7 +462,7 @@ function renderPlay() {
     animatedPlayKey = playKey;
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
-  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length > 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = (state.requestedRank && !state.requestSatisfied)
     ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
@@ -668,6 +666,7 @@ function wireChatPanel() {
     if (!text) return;
     socket.emit("chatMessage", { text });
     input.value = "";
+    if (!isSpectator) { chatOpen = false; render(); } // 플레이어는 채팅 보내면 창이 닫힘(관전자는 계속 열어둠)
   };
   const sendBtn = document.getElementById("chatSendBtn");
   if (sendBtn) sendBtn.onclick = send;
