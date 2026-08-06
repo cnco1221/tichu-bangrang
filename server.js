@@ -23,6 +23,22 @@ const rooms = new Map(); // code -> Room
 const socketRoom = new Map(); // socketId -> code
 const adminSockets = new Set(); // 관리자모드로 로그인한 socket.id
 const loggedInNickname = new Map(); // socket.id -> 로그인한 회원 닉네임
+const activeSession = new Map(); // 닉네임 -> 현재 로그인 중인 socket.id (계정당 세션 1개만 허용)
+
+// 같은 닉네임으로 다른 소켓이 로그인하면, 기존에 그 닉네임으로 로그인해 있던 소켓을 강제 로그아웃시킴
+function claimSession(nickname, socketId) {
+  const prevSocketId = activeSession.get(nickname);
+  if (prevSocketId && prevSocketId !== socketId) {
+    loggedInNickname.delete(prevSocketId);
+    io.to(prevSocketId).emit("forceLogout", { reason: "다른 기기에서 로그인해서 로그아웃됐어요" });
+  }
+  activeSession.set(nickname, socketId);
+}
+
+function releaseSession(socketId) {
+  const nickname = loggedInNickname.get(socketId);
+  if (nickname && activeSession.get(nickname) === socketId) activeSession.delete(nickname);
+}
 
 function genCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -188,11 +204,25 @@ io.on("connection", (socket) => {
 
   socket.on("login", async ({ nickname, password }, cb) => {
     const res = await accounts.login({ nickname, password });
-    if (res.ok) loggedInNickname.set(socket.id, res.nickname);
+    if (res.ok) {
+      loggedInNickname.set(socket.id, res.nickname);
+      claimSession(res.nickname, socket.id);
+    }
+    cb && cb(res);
+  });
+
+  // "로그인 상태 유지" 체크 시 클라이언트가 저장해둔 세션 토큰으로 자동 로그인
+  socket.on("loginWithToken", async ({ nickname, sessionToken }, cb) => {
+    const res = await accounts.loginWithToken({ nickname, sessionToken });
+    if (res.ok) {
+      loggedInNickname.set(socket.id, res.nickname);
+      claimSession(res.nickname, socket.id);
+    }
     cb && cb(res);
   });
 
   socket.on("logout", (_, cb) => {
+    releaseSession(socket.id);
     loggedInNickname.delete(socket.id);
     cb && cb({ ok: true });
   });
@@ -392,6 +422,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     adminSockets.delete(socket.id);
+    releaseSession(socket.id);
     loggedInNickname.delete(socket.id);
     const code = socketRoom.get(socket.id);
     if (!code) return;

@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.19"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.20"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -11,6 +11,16 @@ if (!myToken) {
 let loggedInAs = null; // 로그인한 회원 닉네임(로그인해야 방 생성/입장 가능, 관전은 게스트도 가능)
 let myStats = null; // { nickname, wins, losses, rank }
 let isAdminMode = false;
+
+function setStoredSession(nickname, sessionToken) {
+  if (nickname && sessionToken) {
+    localStorage.setItem("tichu_session_nickname", nickname);
+    localStorage.setItem("tichu_session_token", sessionToken);
+  } else {
+    localStorage.removeItem("tichu_session_nickname");
+    localStorage.removeItem("tichu_session_token");
+  }
+}
 
 function fetchMyStats(rerender) {
   if (!loggedInAs) { myStats = null; if (rerender) render(); return; }
@@ -140,6 +150,7 @@ function render() {
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
   if (roundEndTimerTickHandle && (!state || state.phase !== "roundEnd")) { clearInterval(roundEndTimerTickHandle); roundEndTimerTickHandle = null; }
+  if (grandTimerTickHandle && (!state || state.phase !== "grand")) { clearInterval(grandTimerTickHandle); grandTimerTickHandle = null; }
 
   // 게임 상태가 자주 갱신돼도(다른 플레이어/봇 행동 등) 채팅 입력창 포커스/커서/내용이 안 날아가게 보존
   const active = document.activeElement;
@@ -231,7 +242,7 @@ function renderLanding() {
   const openSignupBtn = document.getElementById("openSignupBtn");
   if (openSignupBtn) openSignupBtn.onclick = () => openSignupModal();
   const logoutBtn = document.getElementById("logoutBtn");
-  if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; myStats = null; render(); };
+  if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; myStats = null; setStoredSession(null, null); render(); };
   const createBtn = document.getElementById("createBtn");
   if (createBtn) createBtn.onclick = () => {
     socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
@@ -270,6 +281,7 @@ function openLoginModal() {
       <h3 class="accent" style="font-size:24px">로그인</h3>
       <input type="text" id="loginNickname" placeholder="닉네임" maxlength="10" />
       <input type="password" id="loginPassword" placeholder="비밀번호" />
+      <label class="remember-row"><input type="checkbox" id="loginRemember" checked /> 로그인 상태 유지</label>
       <div class="hand-actions">
         <button class="primary" id="loginSubmitBtn">로그인</button>
         <button class="ghost" id="loginCancelBtn">취소</button>
@@ -277,17 +289,21 @@ function openLoginModal() {
     </div>`;
   document.body.appendChild(backdrop);
   document.getElementById("loginCancelBtn").onclick = () => backdrop.remove();
-  document.getElementById("loginSubmitBtn").onclick = () => {
+  const submit = () => {
     const nickname = document.getElementById("loginNickname").value.trim();
     const password = document.getElementById("loginPassword").value;
+    const remember = document.getElementById("loginRemember").checked;
     socket.emit("login", { nickname, password }, (res) => {
       if (res.error) return showToast(res.error);
       loggedInAs = res.nickname;
       myName = res.nickname;
+      setStoredSession(remember ? res.nickname : null, remember ? res.sessionToken : null);
       backdrop.remove();
       fetchMyStats(true);
     });
   };
+  document.getElementById("loginSubmitBtn").onclick = submit;
+  document.getElementById("loginPassword").onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
 function openSignupModal() {
@@ -610,7 +626,7 @@ function renderGrand() {
   const isPendingLarge = !!confirmPending.largeTichu;
   const isPendingSmall = !!confirmPending.smallTichu;
 
-  const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}`;
+  const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}<div class="chip" id="grandTimerChip" style="margin-top:6px;"></div>`;
   const bottomHtml = isSpectator ? "" : `
     <div class="hand-actions">
       <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜! (+200/-200)"}</button>
@@ -627,6 +643,7 @@ function renderGrand() {
   if (y) y.onclick = () => handleDoubleConfirm("largeTichu", () => socket.emit("callGrandTichu", { wantsLarge: true }));
   if (sm) sm.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
   if (n) n.onclick = () => socket.emit("callGrandTichu", { wantsLarge: false });
+  startGrandTimerTick();
 }
 
 /* ---------------- Exchange (보드는 그대로, 교환 UI는 모달로) ---------------- */
@@ -781,7 +798,6 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
           <div class="team b">팀B ${state.teamScores[1]}</div>
         </div>
         <div class="topbar-right">
-          <div class="chip" id="turnTimerChip"></div>
           <button class="icon-btn" id="menuBtn">⋮</button>
         </div>
       </div>
@@ -842,6 +858,7 @@ function seatBoxHTML(seat, posClass, role) {
   const abandonCount = p ? (p.abandonCount || 0) : 0;
   const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat) && state.turnSeat !== seat;
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
+    ${isTurn ? `<div class="seat-timer" id="turnTimerChip">차례</div>` : ""}
     ${abandonCount > 0 ? `<div class="abandon-tag">잠수 ${abandonCount}/3</div>` : ""}
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
@@ -998,9 +1015,9 @@ function startTimerTick() {
   const tick = () => {
     const chip = document.getElementById("turnTimerChip");
     if (!chip || !state || state.phase !== "play") return;
-    if (!state.turnDeadline || state.pendingDragonChoice !== null) { chip.textContent = ""; return; }
+    if (!state.turnDeadline || state.pendingDragonChoice !== null) { chip.textContent = "차례"; return; }
     const remain = Math.max(0, Math.ceil((state.turnDeadline - Date.now()) / 1000));
-    chip.textContent = `${seatLabel(state.turnSeat)} · ${remain}초`;
+    chip.textContent = `차례 · ${remain}초`;
   };
   tick();
   timerTickHandle = setInterval(tick, 1000);
@@ -1018,6 +1035,20 @@ function startExchangeTimerTick() {
   };
   tick();
   exchangeTimerTickHandle = setInterval(tick, 1000);
+}
+
+let grandTimerTickHandle = null;
+function startGrandTimerTick() {
+  if (grandTimerTickHandle) clearInterval(grandTimerTickHandle);
+  const tick = () => {
+    const chip = document.getElementById("grandTimerChip");
+    if (!chip || !state || state.phase !== "grand") return;
+    if (!state.grandDeadline) { chip.textContent = ""; return; }
+    const remain = Math.max(0, Math.ceil((state.grandDeadline - Date.now()) / 1000));
+    chip.textContent = `남은 시간 ${remain}초`;
+  };
+  tick();
+  grandTimerTickHandle = setInterval(tick, 1000);
 }
 
 let roundEndTimerTickHandle = null;
@@ -1369,7 +1400,30 @@ socket.on("chatMessage", (m) => {
   }
   render(); // 채팅창이 닫혀있어도 말풍선 갱신을 위해 항상 리렌더
 });
+socket.on("forceLogout", ({ reason }) => {
+  loggedInAs = null;
+  myStats = null;
+  setStoredSession(null, null);
+  showToast(reason || "다른 기기에서 로그인해서 로그아웃됐어요");
+  render();
+});
 socket.on("connect", () => {
+  // "로그인 상태 유지"를 체크했었다면 저장해둔 세션 토큰으로 자동 로그인 시도
+  if (!loggedInAs) {
+    const sNick = localStorage.getItem("tichu_session_nickname");
+    const sTok = localStorage.getItem("tichu_session_token");
+    if (sNick && sTok) {
+      socket.emit("loginWithToken", { nickname: sNick, sessionToken: sTok }, (res) => {
+        if (res && res.ok) {
+          loggedInAs = res.nickname;
+          myName = res.nickname;
+          fetchMyStats(true);
+        } else {
+          setStoredSession(null, null);
+        }
+      });
+    }
+  }
   // 네트워크가 잠깐 끊겼다가 소켓이 자동 재연결된 경우: 원래 있던 방/좌석으로 자동 복귀 시도
   if (myRoom && (mySeat !== null || isSpectator)) {
     socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {

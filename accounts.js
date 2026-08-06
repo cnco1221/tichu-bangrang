@@ -20,6 +20,10 @@ function verifyPassword(password, salt, hash) {
   }
 }
 
+function genSessionToken() {
+  return crypto.randomBytes(24).toString("hex");
+}
+
 async function ensureAdminConfig() {
   const db = initFirebase();
   if (!db) return null;
@@ -67,11 +71,30 @@ async function login({ nickname, password }) {
   if (!db) return { error: "서버에 아직 회원 시스템이 설정되지 않았어요(관리자에게 문의)" };
   nickname = String(nickname || "").trim().slice(0, 10);
   if (!nickname) return { error: "닉네임을 입력해주세요" };
-  const snap = await db.collection(MEMBERS).doc(nickname).get();
+  const ref = db.collection(MEMBERS).doc(nickname);
+  const snap = await ref.get();
   if (!snap.exists) return { error: "존재하지 않는 닉네임이에요" };
   const data = snap.data();
   if (!verifyPassword(password, data.salt, data.passwordHash)) return { error: "비밀번호가 틀렸어요" };
   if (!data.approved) return { error: "아직 관리자 승인 대기 중이에요" };
+  // 로그인할 때마다 세션 토큰을 새로 발급해서 저장 -> 다른 기기에 남아있던 이전 토큰은 자동으로 무효화됨
+  const sessionToken = genSessionToken();
+  await ref.set({ sessionToken }, { merge: true });
+  return { ok: true, nickname: data.nickname, sessionToken };
+}
+
+// "로그인 상태 유지" 체크 시 클라이언트가 로컬에 저장해뒀던 세션 토큰으로 재로그인
+async function loginWithToken({ nickname, sessionToken }) {
+  const db = initFirebase();
+  if (!db) return { error: "서버에 아직 회원 시스템이 설정되지 않았어요(관리자에게 문의)" };
+  nickname = String(nickname || "").trim().slice(0, 10);
+  sessionToken = String(sessionToken || "");
+  if (!nickname || !sessionToken) return { error: "세션 정보가 없어요" };
+  const snap = await db.collection(MEMBERS).doc(nickname).get();
+  if (!snap.exists) return { error: "존재하지 않는 닉네임이에요" };
+  const data = snap.data();
+  if (!data.approved) return { error: "아직 관리자 승인 대기 중이에요" };
+  if (!data.sessionToken || data.sessionToken !== sessionToken) return { error: "세션이 만료됐어요. 다시 로그인해주세요" };
   return { ok: true, nickname: data.nickname };
 }
 
@@ -196,7 +219,7 @@ async function recordRankedResult(winningNicknames, losingNicknames) {
 }
 
 module.exports = {
-  signup, login,
+  signup, login, loginWithToken,
   adminLogin, adminChangePassword,
   adminListPending, adminApprove, adminReject,
   adminListMembers, adminDeleteMember, adminResetPassword, adminSetRecord,

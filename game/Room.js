@@ -37,6 +37,8 @@ class Room {
     this.ROUND_END_AUTO_MS = 10000; // 라운드 결과창에서 자동으로 다음 라운드로 넘어가기까지 대기
     this._roundEndTimer = null;
     this.roundEndDeadline = null;
+    this._grandTimer = null;
+    this.grandDeadline = null;
     this.lastTrickWin = null; // { seat, seq } - 방금 트릭을 가져간 사람(보드 표시용)
     this.resetHandState();
   }
@@ -64,6 +66,7 @@ class Room {
     this._clearExchangeTimer();
     this._clearTimer();
     this._clearRoundEndTimer();
+    this._clearGrandTimer();
   }
 
   /* ---------------- 좌석 / 관전자 ---------------- */
@@ -254,6 +257,29 @@ class Room {
     this.first8 = first8;
     this._full14 = full14;
     this.phase = "grand";
+    this._armGrandTimer();
+  }
+
+  _armGrandTimer() {
+    this._clearGrandTimer();
+    const ms = 30000; // 라지티츄 결정 제한시간 30초
+    this.grandDeadline = Date.now() + ms;
+    const room = this;
+    this._grandTimer = setTimeout(() => room._onGrandTimeout(), ms);
+  }
+
+  _clearGrandTimer() {
+    if (this._grandTimer) clearTimeout(this._grandTimer);
+    this._grandTimer = null;
+    this.grandDeadline = null;
+  }
+
+  _onGrandTimeout() {
+    if (this.phase !== "grand") return;
+    for (let s = 0; s < 4; s++) {
+      if (this.grandDecision[s] === null) this.callGrandTichu(s, false); // 시간 초과 시 자동 패스
+    }
+    this.notify(this.code);
   }
 
   callGrandTichu(seat, wantsLarge) {
@@ -262,6 +288,7 @@ class Room {
     this.grandDecision[seat] = !!wantsLarge;
     if (wantsLarge) this.tichuCalled[seat] = "large";
     if (this.grandDecision.every((d) => d !== null)) {
+      this._clearGrandTimer();
       this.hands = this._full14.map((h) => sortHand(h));
       this.phase = "exchange";
       this._armExchangeTimer();
@@ -350,6 +377,7 @@ class Room {
     if (this.phase === "grand" && this.grandDecision[seat] === null) {
       this.grandDecision[seat] = false; // 스몰티츄를 선언하면 라지티츄는 자동으로 패스 처리
       if (this.grandDecision.every((d) => d !== null)) {
+        this._clearGrandTimer();
         this.hands = this._full14.map((h) => sortHand(h));
         this.phase = "exchange";
         this._armExchangeTimer();
@@ -749,6 +777,8 @@ class Room {
   _abort(reason) {
     this._clearTimer();
     this._clearRoundEndTimer();
+    this._clearGrandTimer();
+    this._clearExchangeTimer();
     this.phase = "aborted";
     this.abortReason = reason;
   }
@@ -764,6 +794,8 @@ class Room {
     if (this.cancelVotes.size >= 4) {
       this._clearTimer();
       this._clearRoundEndTimer();
+      this._clearGrandTimer();
+      this._clearExchangeTimer();
       this.phase = "lobby";
       for (const p of this.players) if (p) p.ready = false;
       this.cancelVotes.clear();
@@ -1035,6 +1067,7 @@ class Room {
       turnSeat: this.turnSeat,
       turnDeadline: this.turnDeadline,
       exchangeDeadline: this.exchangeDeadline,
+      grandDeadline: this.grandDeadline,
       finished: this.finished,
       finishOrder: this.finishOrder,
       pendingDragonChoice: this.pendingDragonChoice,
