@@ -111,8 +111,8 @@ input[type=text] {
 .topbar-right .chip { font-size: 10px; white-space: nowrap; }
 
 /* 방금 낸 카드 로그: 점수표 줄 바로 아래, 왼쪽 상단. 최대 3줄만 보이고 그 이상은 스크롤 없이 위로 밀려 사라짐 */
-.play-log { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; max-height: 63px; overflow: hidden; padding: 4px 10px 0; gap: 1px; pointer-events: none; }
-.play-log-line { font-size: 13px; font-weight: 600; line-height: 20px; color: #1a1208; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.play-log { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; max-height: 54px; overflow: hidden; padding: 4px 10px 0; gap: 1px; pointer-events: none; }
+.play-log-line { flex-shrink: 0; font-size: 11px; font-weight: 600; line-height: 17px; color: #1a1208; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 .compass { position: relative; display: grid; grid-template-columns: 0.7fr 2.6fr 0.7fr; grid-template-rows: 0.9fr 1.8fr 0.9fr; height: 100%; width: 100%; max-width: 100%; padding: 6px 6px; gap: 8px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
 .seat-box {
@@ -129,11 +129,11 @@ input[type=text] {
   0%, 100% { box-shadow: 0 0 0 2px rgba(201,162,75,.35), 0 0 14px rgba(201,162,75,.5); }
   50% { box-shadow: 0 0 0 5px rgba(201,162,75,.45), 0 0 26px rgba(201,162,75,.85); }
 }
-.seat-timer {
-  position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+.turn-timer-fixed {
+  position: fixed; top: calc(48px + env(safe-area-inset-top)); right: 10px;
   background: linear-gradient(180deg, var(--gold), var(--gold-soft)); color: #1b1305;
-  font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 9px; white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0,0,0,.35); z-index: 2;
+  font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 9px; white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35); z-index: 5;
 }
 .seat-box .role { font-family: 'Noto Serif KR'; font-weight: 700; color: var(--ivory); font-size: 13px; }
 .seat-box.turn .role, .seat-box.turn .nick { color: var(--gold-soft); }

@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.26"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.27"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -815,6 +815,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
           <button class="icon-btn" id="menuBtn">⋮</button>
         </div>
       </div>
+      ${state.phase === "play" && state.turnSeat !== null && state.pendingDragonChoice === null ? `<div class="turn-timer-fixed" id="turnTimerChip">차례</div>` : ""}
       ${playLogHTML()}
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
         ${!iVoted && !isSpectator ? `<button class="small danger" id="voteCancelBtn">나도 취소 동의</button>` : ""}
@@ -873,7 +874,6 @@ function seatBoxHTML(seat, posClass, role) {
   const abandonCount = p ? (p.abandonCount || 0) : 0;
   const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat) && state.turnSeat !== seat;
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
-    ${isTurn ? `<div class="seat-timer" id="turnTimerChip">차례</div>` : ""}
     ${abandonCount > 0 ? `<div class="abandon-tag">잠수 ${abandonCount}/3</div>` : ""}
     <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
