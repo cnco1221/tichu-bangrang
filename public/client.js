@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.14"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.16"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -8,8 +8,24 @@ if (!myToken) {
   myToken = "t_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
   localStorage.setItem("tichu_token", myToken);
 }
-let loggedInAs = null; // 로그인한 회원 닉네임(비로그인이면 null, 게스트로 플레이 가능)
+let loggedInAs = null; // 로그인한 회원 닉네임(로그인해야 방 생성/입장 가능, 관전은 게스트도 가능)
+let myStats = null; // { nickname, wins, losses, rank }
 let isAdminMode = false;
+
+function fetchMyStats(rerender) {
+  if (!loggedInAs) { myStats = null; if (rerender) render(); return; }
+  socket.emit("getRanking", null, (res) => {
+    if (!res) return;
+    const ranked = res.ranked || [], unranked = res.unranked || [];
+    const idx = ranked.findIndex((r) => r.nickname === loggedInAs);
+    if (idx !== -1) {
+      myStats = { nickname: loggedInAs, wins: ranked[idx].wins, losses: ranked[idx].losses, rank: idx + 1 };
+    } else {
+      myStats = { nickname: loggedInAs, wins: 0, losses: 0, rank: "X" };
+    }
+    if (rerender) render();
+  });
+}
 let myRoom = localStorage.getItem("tichu_room") || "";
 let mySeat = null;
 let isSpectator = false;
@@ -31,6 +47,18 @@ const SUIT_SYMBOL = { jade: "◆", sword: "▲", pagoda: "●", star: "★" };
 const SUIT_COLOR = { jade: "#2e8b6f", sword: "#a33b35", pagoda: "#b5892f", star: "#3b5e9c" };
 const TEAM_NAME = ["옥·탑 팀 (A)", "검·별 팀 (B)"];
 const TEAM_OF_SEAT = [0, 1, 0, 1];
+
+// 방을 나갈 때 소켓 연결은 그대로 유지해서(로그인 세션 안 끊기게) 방에서만 빠짐
+function leaveCurrentRoom() {
+  socket.emit("leaveRoom", null, () => {
+    mySeat = null;
+    isSpectator = false;
+    myRoom = null;
+    state = null;
+    localStorage.removeItem("tichu_room");
+    render();
+  });
+}
 
 function showToast(msg) {
   clearTimeout(toastTimer);
@@ -155,17 +183,20 @@ function renderLanding() {
       <div class="title accent">방랑단 티츄</div>
       <div class="subtitle">TICHU · 4인 실시간 트릭테이킹</div>
       ${loggedInAs
-        ? `<div class="chip">${loggedInAs}님으로 로그인됨 <button class="small ghost" id="logoutBtn" style="margin-left:6px;">로그아웃</button></div>`
-        : `<div class="hand-actions">
-            <button class="small ghost" id="openLoginBtn">로그인</button>
-            <button class="small ghost" id="openSignupBtn">회원가입</button>
+        ? `<div class="my-info-box">
+            <div class="my-info-row"><span class="label">닉네임</span><span class="value">${escapeHtml(loggedInAs)}</span></div>
+            <div class="my-info-row"><span class="label">승 / 패</span><span class="value">${myStats ? `${myStats.wins} / ${myStats.losses}` : "-"}</span></div>
+            <div class="my-info-row"><span class="label">랭킹</span><span class="value">${myStats ? myStats.rank : "-"}</span></div>
+            <button class="small ghost" id="logoutBtn" style="margin-top:6px;">로그아웃</button>
+          </div>
+          <button class="primary" id="createBtn">새 방 만들기</button>`
+        : `<div class="my-info-box">
+            <div class="status-line">게임을 하려면 로그인이 필요해요</div>
+            <div class="hand-actions">
+              <button class="small primary" id="openLoginBtn">로그인</button>
+              <button class="small ghost" id="openSignupBtn">회원가입</button>
+            </div>
           </div>`}
-      <form id="nameForm">
-        <input type="text" id="nameInput" placeholder="닉네임 (최대 10자)" value="${loggedInAs || myName}" maxlength="10" ${loggedInAs ? "disabled" : ""} required />
-        <div class="row">
-          <button class="primary" type="submit" id="createBtn">새 방 만들기</button>
-        </div>
-      </form>
       <div class="room-list-wrap">
         <div class="room-list-header">
           <span>열려있는 방 (${openRooms.length})</span>
@@ -176,7 +207,7 @@ function renderLanding() {
             ? openRooms.map((r) => `<div class="room-list-row">
                 <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}</div>
                 <div class="room-list-btns">
-                  <button class="small primary" data-join="${r.code}">입장</button>
+                  <button class="small primary" data-join="${r.code}" ${loggedInAs ? "" : "disabled"}>입장</button>
                   <button class="small ghost" data-spectate="${r.code}">관전 입장</button>
                 </div>
               </div>`).join("")
@@ -190,6 +221,7 @@ function renderLanding() {
     ${globalChatOpen ? renderGlobalChatPanel() : ""}
   `;
   if (!roomListFetched) { roomListFetched = true; fetchRoomList(true); }
+  if (loggedInAs && !myStats) fetchMyStats(true);
   document.getElementById("globalChatFab").onclick = () => { globalChatOpen = !globalChatOpen; render(); };
   wireGlobalChatPanel();
   document.getElementById("adminModeBtn").onclick = () => openAdminLoginModal();
@@ -199,22 +231,17 @@ function renderLanding() {
   const openSignupBtn = document.getElementById("openSignupBtn");
   if (openSignupBtn) openSignupBtn.onclick = () => openSignupModal();
   const logoutBtn = document.getElementById("logoutBtn");
-  if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; render(); };
-  const getName = () => (document.getElementById("nameInput").value.trim() || "플레이어").slice(0, 10);
-  document.getElementById("nameForm").onsubmit = (e) => {
-    e.preventDefault();
-    myName = getName();
-    localStorage.setItem("tichu_name", myName);
-    socket.emit("createRoom", { name: myName, token: myToken }, (res) => {
+  if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; myStats = null; render(); };
+  const createBtn = document.getElementById("createBtn");
+  if (createBtn) createBtn.onclick = () => {
+    socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = false;
       localStorage.setItem("tichu_room", myRoom);
     });
   };
   const doJoin = (asSpectator, code) => {
-    myName = getName();
-    localStorage.setItem("tichu_name", myName);
-    socket.emit("joinRoom", { code, name: myName, asSpectator, token: myToken }, (res) => {
+    socket.emit("joinRoom", { code, name: loggedInAs || "관전자", asSpectator, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = !!res.spectator;
       localStorage.setItem("tichu_room", myRoom);
@@ -258,7 +285,7 @@ function openLoginModal() {
       loggedInAs = res.nickname;
       myName = res.nickname;
       backdrop.remove();
-      render();
+      fetchMyStats(true);
     });
   };
 }
@@ -330,6 +357,7 @@ function openAdminPanel(activeTab) {
   const tabs = [
     { id: "members", label: "멤버 관리" },
     { id: "pending", label: "멤버 승인" },
+    { id: "record", label: "전적" },
     { id: "password", label: "비밀번호 변경" },
   ];
   backdrop.innerHTML = `
@@ -388,6 +416,31 @@ function openAdminPanel(activeTab) {
         socket.emit("adminDeleteMember", { nickname: b.dataset.delmember }, (r) => { if (r.error) showToast(r.error); else openAdminPanel("members"); });
       });
     });
+  } else if (activeTab === "record") {
+    socket.emit("adminListMembers", null, (res) => {
+      if (res.error) { content.innerHTML = `<div class="status-line">${res.error}</div>`; return; }
+      content.innerHTML = res.members.length
+        ? res.members.map((m) => `
+            <div class="admin-row">
+              <div>${escapeHtml(m.nickname)}</div>
+              <div class="hand-actions">
+                <span class="chip">승</span>
+                <input type="number" min="0" class="record-input" data-wins="${m.nickname}" value="${m.wins}" />
+                <span class="chip">패</span>
+                <input type="number" min="0" class="record-input" data-losses="${m.nickname}" value="${m.losses}" />
+                <button class="small primary" data-saverecord="${m.nickname}">저장</button>
+              </div>
+            </div>`).join("")
+        : `<div class="status-line">등록된 멤버가 없어요</div>`;
+      content.querySelectorAll("[data-saverecord]").forEach((b) => b.onclick = () => {
+        const nickname = b.dataset.saverecord;
+        const wins = content.querySelector(`[data-wins="${nickname}"]`).value;
+        const losses = content.querySelector(`[data-losses="${nickname}"]`).value;
+        socket.emit("adminSetRecord", { nickname, wins, losses }, (r) => {
+          if (r.error) showToast(r.error); else showToast(`${nickname}님 전적이 저장됐어요`);
+        });
+      });
+    });
   } else if (activeTab === "password") {
     content.innerHTML = `
       <input type="password" id="newAdminPw" placeholder="새 관리자 비밀번호" />
@@ -433,8 +486,8 @@ function openRankingModal(activeTab) {
     const ranked = res.ranked || [], unranked = res.unranked || [];
     content.innerHTML = `
       <table class="summary-table">
-        <tr><th>순위</th><th>닉네임</th><th>승</th><th>패</th><th>승률</th></tr>
-        ${ranked.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname)}</td><td>${r.wins}</td><td>${r.losses}</td><td>${Math.round(r.winRate * 100)}%</td></tr>`).join("")}
+        <tr><th>순위</th><th>닉네임</th><th>승</th><th>패</th><th>승점</th></tr>
+        ${ranked.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname)}</td><td>${r.wins}</td><td>${r.losses}</td><td>${r.score > 0 ? "+" : ""}${r.score}</td></tr>`).join("")}
         ${unranked.map((r) => `<tr><td>X</td><td>${escapeHtml(r.nickname)}</td><td colspan="3">등급전을 한번이라도 하셔야 랭킹이 나옵니다</td></tr>`).join("")}
       </table>
       ${!ranked.length && !unranked.length ? `<div class="status-line">등록된 멤버가 없어요</div>` : ""}
@@ -464,6 +517,7 @@ function renderLobby() {
   const hasEmptySeat = !state.players.every((p) => p !== null);
   const canJoinSeat = isSpectator && hasEmptySeat;
   const humanCount = state.players.filter((p) => p && !p.isBot).length;
+  const hasBot = state.players.some((p) => p && p.isBot);
   const canGoSpectate = !isSpectator && humanCount > 1;
 
   app.innerHTML = `
@@ -474,7 +528,11 @@ function renderLobby() {
       <div class="seat-grid">${seats}</div>
       ${!isSpectator ? `<button class="primary" id="readyBtn">${myReady ? "준비 취소" : "준비 완료"}</button>` : ""}
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
-        ${hasEmptySeat ? `<button id="addBotBtn">봇 추가</button>` : ""}
+        ${hasEmptySeat ? `<button id="addBotBtn" ${state.ranked ? "disabled" : ""}>봇 추가</button>` : ""}
+        ${!isSpectator ? `<button class="${state.fixedSeats ? "primary" : ""}" id="fixedSeatBtn" ${state.ranked ? "disabled" : ""}>지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
+        ${!isSpectator ? `<button class="${state.ranked ? "primary" : ""}" id="rankedBtn" ${hasBot ? "disabled" : ""}>등급전 ${state.ranked ? "끄기" : "켜기"}</button>` : ""}
+      </div>
+      <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
         ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
         ${canGoSpectate ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
       </div>
@@ -482,11 +540,9 @@ function renderLobby() {
         <div class="chip">관전자 ${state.spectatorCount}명</div>
         ${state.spectatorCount > 0 ? `<button class="small" id="showSpecBtn">누구인지 보기</button>` : ""}
         <div class="chip">지정석 ${state.fixedSeats ? "켜짐" : "꺼짐"}</div>
-        ${!isSpectator ? `<button class="small" id="fixedSeatBtn" ${state.ranked ? "disabled" : ""}>지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
         <div class="chip">등급전 ${state.ranked ? "켜짐" : "꺼짐"}</div>
-        ${!isSpectator ? `<button class="small ${state.ranked ? "primary" : ""}" id="rankedBtn">등급전 ${state.ranked ? "끄기" : "켜기"}</button>` : ""}
       </div>
-      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.ranked ? "등급전 켜짐 — 팀은 무조건 무작위, 1000점 게임, 종료 시 승패가 기록돼요" : (state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요")}</div>
+      <div class="status-line">4명 전원이 준비 완료하면 자동으로 시작돼요 (봇은 자동 준비완료)<br/>${state.ranked ? "등급전 켜짐 — 팀은 무조건 무작위, 1000점 게임, 종료 시 승패가 기록돼요" : (state.fixedSeats ? "지정석 켜짐 — 지금 앉은 자리 그대로 시작해요" : "지정석 꺼짐 — 시작할 때 자리(팀)가 무작위로 섞여요")}${hasBot && !state.ranked ? "<br/>봇이 있으면 등급전을 켤 수 없어요" : ""}</div>
     </div>
     ${chatPreviewHTML()}
     <button class="chat-fab icon-btn" id="chatFab">💬</button>
@@ -524,7 +580,7 @@ function renderLobby() {
   const fixedSeatBtn = document.getElementById("fixedSeatBtn");
   if (fixedSeatBtn) fixedSeatBtn.onclick = () => socket.emit("setFixedSeats", { enabled: !state.fixedSeats });
   const rankedBtn = document.getElementById("rankedBtn");
-  if (rankedBtn) rankedBtn.onclick = () => socket.emit("setRanked", { enabled: !state.ranked });
+  if (rankedBtn) rankedBtn.onclick = () => socket.emit("setRanked", { enabled: !state.ranked }, (res) => { if (res && res.error) showToast(res.error); });
   const showSpecBtn = document.getElementById("showSpecBtn");
   if (showSpecBtn) showSpecBtn.onclick = () => {
     const backdrop = document.createElement("div");
@@ -536,7 +592,7 @@ function renderLobby() {
     document.getElementById("closeSpec").onclick = () => backdrop.remove();
   };
   const leaveLobbyBtn = document.getElementById("leaveLobbyBtn");
-  if (leaveLobbyBtn) leaveLobbyBtn.onclick = () => { socket.disconnect(); localStorage.removeItem("tichu_room"); location.reload(); };
+  if (leaveLobbyBtn) leaveLobbyBtn.onclick = () => leaveCurrentRoom();
 }
 
 /* ---------------- Grand(라지) Tichu ---------------- */
@@ -753,7 +809,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const menuBtn = document.getElementById("menuBtn");
   if (menuBtn) menuBtn.onclick = () => { menuOpen = !menuOpen; render(); };
   const leaveBtn = document.getElementById("leaveBtn");
-  if (leaveBtn) leaveBtn.onclick = () => { socket.disconnect(); localStorage.removeItem("tichu_room"); location.reload(); };
+  if (leaveBtn) leaveBtn.onclick = () => leaveCurrentRoom();
   const voteCancelMenuBtn = document.getElementById("voteCancelMenuBtn");
   if (voteCancelMenuBtn) voteCancelMenuBtn.onclick = () => { socket.emit("requestCancel"); menuOpen = false; render(); };
   const voteCancelBtn = document.getElementById("voteCancelBtn");

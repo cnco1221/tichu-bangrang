@@ -77,7 +77,11 @@ input[type=text] {
 .landing .divider { color: var(--ivory-dim); font-size: 12px; letter-spacing: 3px; }
 .hint { font-size: 11px; color: var(--ivory-dim); }
 
-.room-list-wrap { width: min(320px, 90vw); display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.room-list-wrap { width: min(320px, 90vw); display: flex; flex-direction: column; gap: 6px; margin-top: 8px; border: 1px solid var(--jade); border-radius: 12px; padding: 10px; background: rgba(79,172,139,.06); }
+.my-info-box { width: min(280px, 88vw); border: 1px solid var(--gold); border-radius: 12px; padding: 12px 16px; background: rgba(201,162,75,.07); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.my-info-row { width: 100%; display: flex; justify-content: space-between; font-size: 13px; }
+.my-info-row .label { color: var(--ivory-dim); }
+.my-info-row .value { font-weight: 700; color: var(--ivory); }
 .room-list-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ivory-dim); }
 .room-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
 .room-list-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--lacquer-2); border: 1px solid var(--jade); border-radius: 8px; padding: 8px 10px; }
@@ -270,6 +274,7 @@ input[type=text] {
 .admin-tabs { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
 .admin-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--lacquer-2); border: 1px solid var(--panel-line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; text-align: left; }
 #adminTabContent, #rankingTabContent { max-height: 45vh; overflow-y: auto; }
+.record-input { width: 44px; padding: 5px 6px; font-size: 12px; }
 
 .chat-row { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
 .chat-row .icon-btn.small { width: 34px; height: 34px; font-size: 14px; flex-shrink: 0; }
