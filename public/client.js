@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.16"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.18"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -55,6 +55,7 @@ function leaveCurrentRoom() {
     isSpectator = false;
     myRoom = null;
     state = null;
+    document.body.classList.remove("tichu-large-bg", "tichu-small-bg"); // 방 나갈 때 티츄 배경색 원상복구
     localStorage.removeItem("tichu_room");
     render();
   });
@@ -172,22 +173,20 @@ function runRenderDispatch() {
 /* ---------------- Landing ---------------- */
 function renderLanding() {
   app.innerHTML = `
-    <button class="text-btn top-left-fixed" id="adminModeBtn">관리자모드</button>
     <div class="landing">
       <div class="cards-row">
         <div class="suit-chip" style="color:${SUIT_COLOR.jade}">◆</div>
         <div class="suit-chip" style="color:${SUIT_COLOR.sword}">▲</div>
         <div class="suit-chip" style="color:${SUIT_COLOR.pagoda}">●</div>
-        <div class="suit-chip" style="color:${SUIT_COLOR.star}">★</div>
+        <div class="suit-chip" id="adminModeBtn" style="color:${SUIT_COLOR.star}; cursor:pointer;">★</div>
       </div>
       <div class="title accent">방랑단 티츄</div>
-      <div class="subtitle">TICHU · 4인 실시간 트릭테이킹</div>
       ${loggedInAs
         ? `<div class="my-info-box">
             <div class="my-info-row"><span class="label">닉네임</span><span class="value">${escapeHtml(loggedInAs)}</span></div>
             <div class="my-info-row"><span class="label">승 / 패</span><span class="value">${myStats ? `${myStats.wins} / ${myStats.losses}` : "-"}</span></div>
             <div class="my-info-row"><span class="label">랭킹</span><span class="value">${myStats ? myStats.rank : "-"}</span></div>
-            <button class="small ghost" id="logoutBtn" style="margin-top:6px;">로그아웃</button>
+            <button class="small ghost" id="logoutBtn" style="margin-top:2px;">로그아웃</button>
           </div>
           <button class="primary" id="createBtn">새 방 만들기</button>`
         : `<div class="my-info-box">
@@ -488,8 +487,9 @@ function openRankingModal(activeTab) {
       <table class="summary-table">
         <tr><th>순위</th><th>닉네임</th><th>승</th><th>패</th><th>승점</th></tr>
         ${ranked.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.nickname)}</td><td>${r.wins}</td><td>${r.losses}</td><td>${r.score > 0 ? "+" : ""}${r.score}</td></tr>`).join("")}
-        ${unranked.map((r) => `<tr><td>X</td><td>${escapeHtml(r.nickname)}</td><td colspan="3">등급전을 한번이라도 하셔야 랭킹이 나옵니다</td></tr>`).join("")}
+        ${unranked.map((r) => `<tr><td>X</td><td>${escapeHtml(r.nickname)}</td><td>-</td><td>-</td><td>-</td></tr>`).join("")}
       </table>
+      ${unranked.length ? `<div class="hint">X는 등급전 전적이 아직 없는 멤버예요</div>` : ""}
       ${!ranked.length && !unranked.length ? `<div class="status-line">등록된 멤버가 없어요</div>` : ""}
     `;
   });
@@ -509,7 +509,7 @@ function renderLobby() {
     return `<div class="seat-card filled ${p.ready ? "ready" : ""}">
       ${p.ready ? `<div class="ready-tag">준비완료</div>` : ""}
       <div class="team-tag">${i % 2 === 0 ? "팀 A" : "팀 B"} · 좌석 ${i + 1}</div>
-      <div class="seat-name">${p.name}${p.isBot ? " 🤖" : ""}${i === mySeat ? " (나)" : ""}</div>
+      <div class="seat-name">${state.hostSeat === i ? "👑 " : ""}${p.name}${p.isBot ? " 🤖" : ""}${i === mySeat ? " (나)" : ""}</div>
       ${p.isBot ? `<button class="small ghost" data-removebot="${i}">봇 빼기</button>` : ""}
     </div>`;
   }).join("");
@@ -519,19 +519,23 @@ function renderLobby() {
   const humanCount = state.players.filter((p) => p && !p.isBot).length;
   const hasBot = state.players.some((p) => p && p.isBot);
   const canGoSpectate = !isSpectator && humanCount > 1;
+  const isHost = !isSpectator && mySeat !== null && state.hostSeat === mySeat;
 
   app.innerHTML = `
-    <button class="icon-btn text-btn top-right-fixed" id="leaveLobbyBtn">방 나가기</button>
     <div class="lobby">
       <div>방 코드</div>
       <div class="room-code">${state.code}</div>
       <div class="seat-grid">${seats}</div>
-      ${!isSpectator ? `<button class="primary" id="readyBtn">${myReady ? "준비 취소" : "준비 완료"}</button>` : ""}
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
-        ${hasEmptySeat ? `<button id="addBotBtn" ${state.ranked ? "disabled" : ""}>봇 추가</button>` : ""}
-        ${!isSpectator ? `<button class="${state.fixedSeats ? "primary" : ""}" id="fixedSeatBtn" ${state.ranked ? "disabled" : ""}>지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
-        ${!isSpectator ? `<button class="${state.ranked ? "primary" : ""}" id="rankedBtn" ${hasBot ? "disabled" : ""}>등급전 ${state.ranked ? "끄기" : "켜기"}</button>` : ""}
+        ${!isSpectator ? `<button class="primary" id="readyBtn">${myReady ? "준비 취소" : "준비 완료"}</button>` : ""}
+        <button class="ghost" id="leaveLobbyBtn">방 나가기</button>
       </div>
+      <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
+        ${hasEmptySeat ? `<button id="addBotBtn" ${state.ranked || !isHost ? "disabled" : ""}>봇 추가</button>` : ""}
+        ${!isSpectator ? `<button class="${state.fixedSeats ? "primary" : ""}" id="fixedSeatBtn" ${state.ranked || !isHost ? "disabled" : ""}>지정석 ${state.fixedSeats ? "끄기" : "켜기"}</button>` : ""}
+        ${!isSpectator ? `<button class="${state.ranked ? "primary" : ""}" id="rankedBtn" ${hasBot || !isHost ? "disabled" : ""}>등급전 ${state.ranked ? "끄기" : "켜기"}</button>` : ""}
+      </div>
+      ${!isSpectator && !isHost ? `<div class="hint">봇 추가·지정석·등급전은 방장만 바꿀 수 있어요</div>` : ""}
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
         ${canJoinSeat ? `<button id="takeSeatBtn">빈 자리에 참여하기</button>` : ""}
         ${canGoSpectate ? `<button id="toSpectatorBtn" class="ghost">관전으로 전환</button>` : ""}
@@ -767,7 +771,6 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const leftSeat = (viewerSeat + 3) % 4;
   const cancelVotes = state.cancelVotes || [];
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
-  const hasMenuContent = !isSpectator; // 지금은 메뉴에 취소투표만 있어서 관전자는 메뉴 자체가 필요 없음
 
   app.innerHTML = `
     <div class="table-wrap">
@@ -778,8 +781,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
         </div>
         <div class="topbar-right">
           <div class="chip" id="turnTimerChip"></div>
-          ${hasMenuContent ? `<button class="icon-btn" id="menuBtn">⋮</button>` : ""}
-          <button class="icon-btn text-btn" id="leaveBtn">방 나가기</button>
+          <button class="icon-btn" id="menuBtn">⋮</button>
         </div>
       </div>
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
@@ -798,8 +800,9 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
         ${chatRowInlineHTML()}
       </div>
     </div>
-    ${menuOpen && hasMenuContent ? `<div class="menu-dropdown">
-      <button id="voteCancelMenuBtn" class="danger">게임 취소 제안</button>
+    ${menuOpen ? `<div class="menu-dropdown">
+      ${!isSpectator ? `<button id="voteCancelMenuBtn" class="danger">게임 취소 제안</button>` : ""}
+      <button id="leaveBtn" class="${confirmPending.leaveGame ? "danger" : "ghost"}">${confirmPending.leaveGame ? "정말요? 다시 눌러서 나가기" : "방 나가기"}</button>
     </div>` : ""}
     ${chatOpen ? renderChatPanel() : ""}
   `;
@@ -809,7 +812,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const menuBtn = document.getElementById("menuBtn");
   if (menuBtn) menuBtn.onclick = () => { menuOpen = !menuOpen; render(); };
   const leaveBtn = document.getElementById("leaveBtn");
-  if (leaveBtn) leaveBtn.onclick = () => leaveCurrentRoom();
+  if (leaveBtn) leaveBtn.onclick = () => handleDoubleConfirm("leaveGame", () => leaveCurrentRoom());
   const voteCancelMenuBtn = document.getElementById("voteCancelMenuBtn");
   if (voteCancelMenuBtn) voteCancelMenuBtn.onclick = () => { socket.emit("requestCancel"); menuOpen = false; render(); };
   const voteCancelBtn = document.getElementById("voteCancelBtn");
@@ -830,7 +833,7 @@ function seatLabel(seat) { const p = state.players[seat]; return p ? p.name : `�
 function seatBoxHTML(seat, posClass, role) {
   const isTurn = state.turnSeat === seat && state.pendingDragonChoice === null;
   const tichu = state.tichuCalled[seat];
-  const badge = tichu === "large" ? `<span class="badge large">라지</span>` : tichu === "small" ? `<span class="badge">스몰</span>` : "";
+  const badge = tichu === "large" ? `<span class="badge tichu-large">라지티츄</span>` : tichu === "small" ? `<span class="badge tichu-small">스몰티츄</span>` : "";
   const finished = state.finished[seat] ? " ✓" : "";
   const count = state.handCounts[seat];
   const p = state.players[seat];

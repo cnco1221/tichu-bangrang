@@ -78,7 +78,7 @@ input[type=text] {
 .hint { font-size: 11px; color: var(--ivory-dim); }
 
 .room-list-wrap { width: min(320px, 90vw); display: flex; flex-direction: column; gap: 6px; margin-top: 8px; border: 1px solid var(--jade); border-radius: 12px; padding: 10px; background: rgba(79,172,139,.06); }
-.my-info-box { width: min(280px, 88vw); border: 1px solid var(--gold); border-radius: 12px; padding: 12px 16px; background: rgba(201,162,75,.07); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.my-info-box { width: min(280px, 88vw); border: 1px solid var(--gold); border-radius: 10px; padding: 6px 16px; background: rgba(201,162,75,.07); display: flex; flex-direction: column; gap: 3px; align-items: center; }
 .my-info-row { width: 100%; display: flex; justify-content: space-between; font-size: 13px; }
 .my-info-row .label { color: var(--ivory-dim); }
 .my-info-row .value { font-weight: 700; color: var(--ivory); }
@@ -122,6 +122,8 @@ input[type=text] {
 .seat-box .nick { font-size: 12px; font-weight: 700; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .seat-box .count { font-size: 9px; color: var(--gold-soft); }
 .seat-box .badge { font-size: 8px; padding: 1px 5px; border-radius: 8px; background: var(--jade); color: #06231a; }
+.seat-box .badge.tichu-large { font-size: 12px; font-weight: 800; padding: 2px 8px; background: var(--danger); color: #fff; }
+.seat-box .badge.tichu-small { font-size: 12px; font-weight: 800; padding: 2px 8px; background: var(--star); color: #fff; }
 .seat-box .badge.large { background: var(--gold-soft); }
 .seat-box.disconnected { opacity: .4; }
 
