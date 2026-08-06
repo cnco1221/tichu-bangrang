@@ -797,7 +797,7 @@ class Room {
       this._clearGrandTimer();
       this._clearExchangeTimer();
       this.phase = "lobby";
-      for (const p of this.players) if (p) p.ready = false;
+      for (const p of this.players) if (p) p.ready = p.isBot; // 봇은 항상 준비완료 상태 유지, 사람만 다시 준비해야 함
       this.cancelVotes.clear();
       this.abortReason = null;
     }

@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.20"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.23"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -705,9 +705,9 @@ function openExchangeModal() {
     <div class="modal exchange-modal-compact">
       <div class="chip" id="exchangeTimerChip"></div>
       <div class="exchange-slots">
-        ${slot("right", "왼쪽 사람")}
+        ${slot("right", "왼쪽")}
         ${slot("across", "파트너")}
-        ${slot("left", "오른쪽 사람")}
+        ${slot("left", "오른쪽")}
       </div>
       <button class="primary" id="submitExchange" ${submitted || staged.size !== 3 ? "disabled" : ""}>${submitted ? "제출 완료" : "교환 확정"}</button>
     </div>
@@ -1308,13 +1308,105 @@ function playPassSound() {
   } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
 }
 
+function playBombSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const now = ctx.currentTime;
+    // 저음 폭발음
+    const o1 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    o1.type = "sawtooth";
+    o1.frequency.setValueAtTime(180, now);
+    o1.frequency.exponentialRampToValueAtTime(40, now + 0.35);
+    g1.gain.setValueAtTime(0.0001, now);
+    g1.gain.exponentialRampToValueAtTime(0.55, now + 0.02);
+    g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+    o1.connect(g1); g1.connect(ctx.destination);
+    o1.start(now); o1.stop(now + 0.42);
+    // 날카로운 타격음
+    const o2 = ctx.createOscillator();
+    const g2 = ctx.createGain();
+    o2.type = "square";
+    o2.frequency.setValueAtTime(900, now);
+    o2.frequency.exponentialRampToValueAtTime(120, now + 0.09);
+    g2.gain.setValueAtTime(0.0001, now);
+    g2.gain.exponentialRampToValueAtTime(0.4, now + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+    o2.connect(g2); g2.connect(ctx.destination);
+    o2.start(now); o2.stop(now + 0.11);
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
+function playSmallTichuSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const now = ctx.currentTime;
+    [520, 780].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      const t0 = now + i * 0.1;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.32, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t0); o.stop(t0 + 0.22);
+    });
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
+function playLargeTichuSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const now = ctx.currentTime;
+    [520, 660, 780, 1040].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = freq;
+      const t0 = now + i * 0.09;
+      const dur = i === 3 ? 0.36 : 0.16;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.42, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    });
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+
 let lastTrickPlayCount = 0;
 function checkPlaySound(newState) {
   if (newState && newState.currentTrick) {
-    const n = newState.currentTrick.plays.length;
-    if (n > lastTrickPlayCount) playCardSound();
+    const plays = newState.currentTrick.plays;
+    const n = plays.length;
+    if (n > lastTrickPlayCount) {
+      const lastPlay = plays[n - 1];
+      const comboType = lastPlay && lastPlay.combo && lastPlay.combo.type;
+      if (comboType === "bomb4" || comboType === "bombStraight") playBombSound();
+      else playCardSound();
+    }
     lastTrickPlayCount = n;
   }
+}
+
+let lastTichuCalled = [null, null, null, null];
+function checkTichuSound(s) {
+  if (!s || !s.tichuCalled) return;
+  for (let i = 0; i < 4; i++) {
+    const prev = lastTichuCalled[i];
+    const cur = s.tichuCalled[i];
+    if (prev === null && cur === "small") playSmallTichuSound();
+    else if (prev === null && cur === "large") playLargeTichuSound();
+  }
+  lastTichuCalled = s.tichuCalled.slice();
 }
 
 let lastSeenActionSeq = 0;
@@ -1370,6 +1462,7 @@ socket.on("state", (s) => {
   checkActionEvents(s);
   checkDragonGift(s);
   checkTrickWin(s);
+  checkTichuSound(s);
   if (s.phase === "grand" && (!state || state.phase !== "grand")) {
     exchangeStage = { left: null, across: null, right: null };
     exchangeSelectedCardId = null;
