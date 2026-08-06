@@ -68,6 +68,7 @@ class Room {
 
   addBot(seat) {
     if (this.players[seat]) return false;
+    if (this.ranked) return false; // 등급전 중엔 봇을 추가할 수 없음
     const humanCount = this.players.filter((p) => p && !p.isBot).length;
     if (humanCount === 0) return false; // 최소 한 자리는 사람이어야 함(전원 봇 방지)
     this.players[seat] = { socketId: null, name: `봇${seat + 1}`, ready: true, connected: true, abandonCount: 0, isBot: true };
@@ -180,9 +181,11 @@ class Room {
   }
 
   setRanked(enabled) {
-    if (this.phase !== "lobby") return;
+    if (this.phase !== "lobby") return false;
+    if (enabled && this.players.some((p) => p && p.isBot)) return false; // 봇이 한 명이라도 있으면 등급전 불가
     this.ranked = !!enabled;
     if (this.ranked) this.fixedSeats = false; // 등급전은 무조건 팀 랜덤(지정석 해제+잠금)
+    return true;
   }
 
   _shuffleSeats() {
