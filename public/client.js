@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.24"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.25"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -421,7 +421,7 @@ function openAdminPanel(activeTab) {
       content.innerHTML = res.members.length
         ? res.members.map((m) => `
             <div class="admin-row">
-              <div>방랑단: ${escapeHtml(m.name)}<br/>게임닉: ${escapeHtml(m.nickname)} · ${m.wins}승 ${m.losses}패</div>
+              <div>방랑단: ${escapeHtml(m.name)}<br/>게임닉: ${escapeHtml(m.nickname)}</div>
               <div class="hand-actions">
                 <button class="small" data-resetpw="${m.nickname}">비번</button>
                 <button class="small" data-renamenick="${m.nickname}">닉</button>
@@ -556,8 +556,6 @@ function renderLobby() {
 
   app.innerHTML = `
     <div class="lobby">
-      <div>방 코드</div>
-      <div class="room-code">${state.code}</div>
       <div class="seat-grid">${seats}</div>
       <div class="hand-actions" style="flex-wrap:wrap; justify-content:center;">
         ${!isSpectator ? `<button class="primary" id="readyBtn">${myReady ? "준비 취소" : "준비 완료"}</button>` : ""}

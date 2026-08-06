@@ -123,13 +123,18 @@ function tryStraight(cards, hasPhoenix, hasSparrow) {
   const uniq = Array.from(new Set(ranks)).sort((a, b) => a - b);
   if (uniq.length !== ranks.length) return null; // 중복 랭크 있으면 스트레이트 아님
 
+  // 카드 순서를 랭크 오름차순으로 정렬해서 반환(선택한 순서가 아니라 실제 족보 순서대로 보이도록)
+  const sortedNonPhoenix = nonPhoenix.slice().sort((a, b) =>
+    (isSpecial(a, "sparrow") ? 1 : a.rank) - (isSpecial(b, "sparrow") ? 1 : b.rank)
+  );
+
   if (!hasPhoenix) {
     const minR = uniq[0];
     const maxR = uniq[uniq.length - 1];
     if (maxR - minR + 1 !== len) return null; // 완전히 연속이어야 함
     const suits = new Set(nonPhoenix.map((c) => c.suit));
-    if (suits.size === 1) return { type: "bombStraight", len, power: maxR, hasPhoenix: false, cards, isBomb: true };
-    return { type: "straight", len, power: maxR, hasPhoenix: false, cards };
+    if (suits.size === 1) return { type: "bombStraight", len, power: maxR, hasPhoenix: false, cards: sortedNonPhoenix, isBomb: true };
+    return { type: "straight", len, power: maxR, hasPhoenix: false, cards: sortedNonPhoenix };
   }
 
   // 봉황 1장 포함: 나머지 카드들은 서로 중복 없이 len-1장이어야 하고,
@@ -140,12 +145,24 @@ function tryStraight(cards, hasPhoenix, hasSparrow) {
   const knownSpan = maxR - minR + 1;
   const gapsInside = knownSpan - uniq.length;
 
+  const phoenixCard = cards.find((c) => isSpecial(c, "phoenix"));
+  // 봉황이 실제로 채우는 랭크 자리에 오도록, 나머지 카드들 사이의 그 위치에 끼워 넣는다
+  const cardsWithPhoenixAt = (effectiveRank) => {
+    const arr = sortedNonPhoenix.slice();
+    let idx = arr.findIndex((c) => (isSpecial(c, "sparrow") ? 1 : c.rank) > effectiveRank);
+    if (idx === -1) idx = arr.length;
+    arr.splice(idx, 0, phoenixCard);
+    return arr;
+  };
+
   if (gapsInside === 1) {
-    return { type: "straight", len, power: maxR, hasPhoenix: true, cards };
+    let gapRank = minR;
+    while (uniq.includes(gapRank)) gapRank++;
+    return { type: "straight", len, power: maxR, hasPhoenix: true, cards: cardsWithPhoenixAt(gapRank) };
   }
   if (gapsInside === 0) {
-    if (maxR < 14) return { type: "straight", len, power: maxR + 1, hasPhoenix: true, cards }; // 위로 확장(유리한 쪽)
-    if (minR > 1) return { type: "straight", len, power: maxR, hasPhoenix: true, cards }; // 위로 못 가면 아래로 확장
+    if (maxR < 14) return { type: "straight", len, power: maxR + 1, hasPhoenix: true, cards: cardsWithPhoenixAt(maxR + 1) }; // 위로 확장(유리한 쪽)
+    if (minR > 1) return { type: "straight", len, power: maxR, hasPhoenix: true, cards: [phoenixCard, ...sortedNonPhoenix] }; // 위로 못 가면 아래로 확장
     return null;
   }
   return null; // 빈 칸이 2개 이상이면 봉황 한 장으로는 못 채움
