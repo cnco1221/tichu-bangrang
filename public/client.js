@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.23"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.24"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
