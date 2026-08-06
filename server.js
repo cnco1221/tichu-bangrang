@@ -157,18 +157,24 @@ io.on("connection", (socket) => {
     broadcast(code);
   });
 
-  socket.on("setFixedSeats", ({ enabled }) => {
+  socket.on("setFixedSeats", ({ enabled }, cb) => {
     const { room, seat, code } = getRoomSeat(socket);
     if (!room || seat === -1) return;
-    room.setFixedSeats(enabled);
+    const ok = room.setFixedSeats(enabled, seat);
+    if (!ok) { cb && cb({ error: room.isHost(seat) ? "지금은 지정석을 바꿀 수 없어요" : "방장만 바꿀 수 있어요" }); return; }
+    cb && cb({ ok: true });
     broadcast(code);
   });
 
   socket.on("setRanked", ({ enabled }, cb) => {
     const { room, seat, code } = getRoomSeat(socket);
     if (!room || seat === -1) return;
-    const ok = room.setRanked(enabled);
-    if (!ok && enabled) { cb && cb({ error: "봇이 있으면 등급전을 켤 수 없어요(봇을 먼저 빼주세요)" }); return; }
+    const ok = room.setRanked(enabled, seat);
+    if (!ok) {
+      if (!room.isHost(seat)) { cb && cb({ error: "방장만 바꿀 수 있어요" }); return; }
+      cb && cb({ error: "봇이 있으면 등급전을 켤 수 없어요(봇을 먼저 빼주세요)" });
+      return;
+    }
     cb && cb({ ok: true });
     broadcast(code);
   });
@@ -261,10 +267,14 @@ io.on("connection", (socket) => {
     const { room, code } = getRoomCode(socket);
     if (!room) return cb && cb({ error: "방에 먼저 들어가야 해요" });
     if (room.phase !== "lobby") return cb && cb({ error: "게임 중에는 봇을 추가할 수 없어요" });
+    const actorSeat = room.seatBySocket(socket.id);
     const seat = room.players.findIndex((p) => p === null);
     if (seat === -1) return cb && cb({ error: "빈 자리가 없어요" });
-    const ok = room.addBot(seat);
-    if (!ok) return cb && cb({ error: room.ranked ? "등급전 중에는 봇을 추가할 수 없어요" : "최소 한 자리는 사람이어야 해요(전원 봇으로는 채울 수 없어요)" });
+    const ok = room.addBot(seat, actorSeat);
+    if (!ok) {
+      if (!room.isHost(actorSeat)) return cb && cb({ error: "방장만 봇을 추가할 수 있어요" });
+      return cb && cb({ error: room.ranked ? "등급전 중에는 봇을 추가할 수 없어요" : "최소 한 자리는 사람이어야 해요(전원 봇으로는 채울 수 없어요)" });
+    }
     cb && cb({ ok: true, seat });
     if (room.players.every((p) => p !== null && p.ready)) room.startGame();
     afterMutation(code);
