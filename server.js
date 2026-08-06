@@ -63,14 +63,27 @@ function broadcast(code) {
   }
 }
 
-function runBots(code, delay = 1500) {
-  const room = rooms.get(code);
-  if (!room) return;
-  const acted = room.botAct();
-  if (acted) {
-    broadcast(code);
-    setTimeout(() => runBots(code, delay), delay);
-  }
+const BOT_ACT_DELAY_MS = 1500;
+const botTimers = new Map(); // code -> timeout handle. 방마다 예약된 봇 행동 타이머를 하나만 유지해서, mutation이 겹칠 때 봇 타이머가 중복 예약되어 너무 빨리 내는 버그를 막는다.
+
+function clearBotTimer(code) {
+  const t = botTimers.get(code);
+  if (t) { clearTimeout(t); botTimers.delete(code); }
+}
+
+function scheduleBotCheck(code) {
+  clearBotTimer(code); // 이미 예약된 봇 행동이 있으면 취소하고 새로 예약(항상 "차례가 된 시점"부터 1.5초 뒤에만 내도록)
+  const timer = setTimeout(() => {
+    botTimers.delete(code);
+    const room = rooms.get(code);
+    if (!room) return;
+    const acted = room.botAct();
+    if (acted) {
+      broadcast(code);
+      scheduleBotCheck(code);
+    }
+  }, BOT_ACT_DELAY_MS);
+  botTimers.set(code, timer);
 }
 
 function afterMutation(code) {
@@ -81,7 +94,7 @@ function afterMutation(code) {
     room.pendingRankedResult = null;
     accounts.recordRankedResult(winners, losers).catch((e) => console.error("[ranked] 승패 기록 실패:", e.message));
   }
-  setTimeout(() => runBots(code), 1500); // 첫 봇 행동도 딜레이 적용(즉시 내는 버그 수정)
+  scheduleBotCheck(code);
 }
 
 function makeRoom(code) {
@@ -286,6 +299,11 @@ io.on("connection", (socket) => {
   socket.on("adminResetPassword", async ({ nickname, newPassword }, cb) => {
     if (!requireAdmin(cb)) return;
     cb && cb(await accounts.adminResetPassword(nickname, newPassword));
+  });
+
+  socket.on("adminRenameNickname", async ({ nickname, newNickname }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminRenameNickname(nickname, newNickname));
   });
 
   socket.on("adminSetRecord", async ({ nickname, wins, losses }, cb) => {

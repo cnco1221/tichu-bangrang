@@ -169,6 +169,24 @@ async function adminResetPassword(nickname, newPassword) {
   return { ok: true };
 }
 
+async function adminRenameNickname(nickname, newNickname) {
+  const db = initFirebase();
+  if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
+  newNickname = String(newNickname || "").trim().slice(0, 10);
+  if (!newNickname) return { error: "새 게임닉을 입력해주세요" };
+  if (newNickname === nickname) return { ok: true };
+  const oldRef = db.collection(MEMBERS).doc(nickname);
+  const oldSnap = await oldRef.get();
+  if (!oldSnap.exists) return { error: "존재하지 않는 멤버예요" };
+  const newRef = db.collection(MEMBERS).doc(newNickname);
+  if ((await newRef.get()).exists) return { error: "이미 사용 중인 게임닉이에요" };
+  const data = oldSnap.data();
+  await newRef.set({ ...data, nickname: newNickname, sessionToken: null });
+  await oldRef.delete();
+  return { ok: true };
+}
+
 async function adminSetRecord(nickname, wins, losses) {
   const db = initFirebase();
   if (!db) return { error: "설정 안 됨" };
@@ -222,6 +240,6 @@ module.exports = {
   signup, login, loginWithToken,
   adminLogin, adminChangePassword,
   adminListPending, adminApprove, adminReject,
-  adminListMembers, adminDeleteMember, adminResetPassword, adminSetRecord,
+  adminListMembers, adminDeleteMember, adminResetPassword, adminRenameNickname, adminSetRecord,
   getRanking, recordRankedResult,
 };

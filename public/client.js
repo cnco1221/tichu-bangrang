@@ -92,6 +92,14 @@ function handleDoubleConfirm(key, action) {
   render();
 }
 
+// 용/봉황/개/새 카드 이미지: public/images/cards/{name}.png 가 있으면 그걸 쓰고,
+// 없거나 로드 실패하면 이모지로 자동 대체(onerror)한다.
+function specialIconHTML(name, fallbackEmoji) {
+  return `<div class="center-icon">
+    <img src="images/cards/${name}.png" alt="${fallbackEmoji}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'center-icon-fallback',textContent:'${fallbackEmoji}'}))" />
+  </div>`;
+}
+
 function cardHTML(card, { small = false, isSelected = false, isPicking = false } = {}) {
   const cls = ["card"];
   if (small) cls.push("small");
@@ -102,25 +110,25 @@ function cardHTML(card, { small = false, isSelected = false, isPicking = false }
   if (card.special === "sparrow") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
       <div class="corner-tl">1</div>
-      <div class="center-icon">🐦</div>
+      ${specialIconHTML("sparrow", "🐦")}
       <div class="corner-br">1</div>
     </div>`;
   }
   if (card.special === "dragon") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
-      <div class="center-icon">🐉</div>
+      ${specialIconHTML("dragon", "🐉")}
       <div class="suit" style="color:#8a5a1a">용</div>
     </div>`;
   }
   if (card.special === "phoenix") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
-      <div class="center-icon">🔥</div>
+      ${specialIconHTML("phoenix", "🔥")}
       <div class="suit" style="color:#a33b35">봉황</div>
     </div>`;
   }
   if (card.special === "dog") {
     return `<div class="${cls.join(" ")}" data-id="${card.id}">
-      <div class="center-icon">🐕</div>
+      ${specialIconHTML("dog", "🐕")}
       <div class="suit" style="color:#3a6b57">개</div>
     </div>`;
   }
@@ -413,9 +421,10 @@ function openAdminPanel(activeTab) {
       content.innerHTML = res.members.length
         ? res.members.map((m) => `
             <div class="admin-row">
-              <div>방랑단 닉네임: ${escapeHtml(m.name)}<br/>로그인 닉네임: ${escapeHtml(m.nickname)} · ${m.wins}승 ${m.losses}패</div>
+              <div>방랑단: ${escapeHtml(m.name)}<br/>게임닉: ${escapeHtml(m.nickname)} · ${m.wins}승 ${m.losses}패</div>
               <div class="hand-actions">
-                <button class="small" data-resetpw="${m.nickname}">비번 변경</button>
+                <button class="small" data-resetpw="${m.nickname}">비번</button>
+                <button class="small" data-renamenick="${m.nickname}">닉</button>
                 <button class="small danger" data-delmember="${m.nickname}">삭제</button>
               </div>
             </div>`).join("")
@@ -425,6 +434,13 @@ function openAdminPanel(activeTab) {
         if (!newPw) return;
         socket.emit("adminResetPassword", { nickname: b.dataset.resetpw, newPassword: newPw }, (r) => {
           if (r.error) showToast(r.error); else showToast("비밀번호가 변경됐어요");
+        });
+      });
+      content.querySelectorAll("[data-renamenick]").forEach((b) => b.onclick = () => {
+        const newNick = prompt(`${b.dataset.renamenick}님의 새 게임닉을 입력하세요`);
+        if (!newNick) return;
+        socket.emit("adminRenameNickname", { nickname: b.dataset.renamenick, newNickname: newNick }, (r) => {
+          if (r.error) showToast(r.error); else { showToast("게임닉이 변경됐어요"); openAdminPanel("members"); }
         });
       });
       content.querySelectorAll("[data-delmember]").forEach((b) => b.onclick = () => {
@@ -801,6 +817,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
           <button class="icon-btn" id="menuBtn">⋮</button>
         </div>
       </div>
+      ${playLogHTML()}
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
         ${!iVoted && !isSpectator ? `<button class="small danger" id="voteCancelBtn">나도 취소 동의</button>` : ""}
       </div>` : ""}
@@ -891,6 +908,12 @@ function formatPhoenixValue(power) {
   return `${label}.5`;
 }
 
+function playLogHTML() {
+  if (playLogEntries.length === 0) return "";
+  const lines = playLogEntries.slice(-10).map((e) => `<div class="play-log-line">${e.text}</div>`).join("");
+  return `<div class="play-log">${lines}</div>`;
+}
+
 function comboLabel(combo) {
   if (!combo) return "";
   if (combo.type === "dog") return "개";
@@ -938,14 +961,10 @@ function renderPlay() {
   const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
-  const trickWinTag = (state.lastTrickWin && Date.now() < trickWinVisibleUntil)
-    ? `<div class="trick-win-tag">${seatLabel(state.lastTrickWin.seat)}이(가) 트릭을 가져갔어요</div>`
-    : "";
   const centerHtml = `
     ${lastPlay ? `<div class="trick-direction dir-${fromClass.replace("from-", "")}"></div>` : ""}
     ${requestedTag}
     ${dragonGiftTag}
-    ${trickWinTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
     ${lastPlay ? `<div class="combo-label"><div class="who">${seatLabel(lastPlay.seat)}</div><div class="what">${comboLabelText}</div></div>` : ""}
   `;
@@ -1446,22 +1465,47 @@ function checkDragonGift(s) {
   }
 }
 
-let trickWinVisibleUntil = 0;
-let lastSeenTrickWinSeq = 0;
-function checkTrickWin(s) {
-  if (!s.lastTrickWin) return;
-  if (s.lastTrickWin.seq > lastSeenTrickWinSeq) {
-    lastSeenTrickWinSeq = s.lastTrickWin.seq;
-    trickWinVisibleUntil = Date.now() + 3000;
-    setTimeout(() => render(), 3000); // 3초 후 사라지도록 재렌더
+// 왼쪽 상단 플레이 로그: 이번 트릭에서 나온 카드 + 트릭을 가져간 사람까지 함께 쌓인다.
+// 새 트릭의 첫 수가 나오는 순간(= 사람이든 봇이든 리드) 이전 트릭 내용을 지우고 새로 쌓기 시작한다.
+let playLogEntries = []; // { key, text }
+let playLogPlaysSeen = 0;
+let playLogSeenWinSeq = 0;
+let playLogPendingClear = false;
+function updatePlayLog(s) {
+  const trick = s.currentTrick;
+  if (!trick) return;
+  const playsLen = trick.plays.length;
+
+  if (playLogPendingClear && playsLen > 0) {
+    playLogEntries = [];
+    playLogPlaysSeen = 0;
+    playLogPendingClear = false;
   }
+
+  if (playsLen > playLogPlaysSeen) {
+    for (let i = playLogPlaysSeen; i < playsLen; i++) {
+      const p = trick.plays[i];
+      playLogEntries.push({ key: `p${s.actionSeq}_${i}`, text: `${escapeHtml(seatLabel(p.seat))} - ${comboLabel(p.combo)}` });
+    }
+    playLogPlaysSeen = playsLen;
+  } else if (playsLen === 0 && playLogPlaysSeen > 0) {
+    playLogPlaysSeen = 0;
+    playLogPendingClear = true; // 다음 리드가 나올 때까지는 지금까지의 로그(승자 포함)를 유지
+  }
+
+  if (s.lastTrickWin && s.lastTrickWin.seq > playLogSeenWinSeq) {
+    playLogSeenWinSeq = s.lastTrickWin.seq;
+    playLogEntries.push({ key: `win${s.lastTrickWin.seq}`, text: `${escapeHtml(seatLabel(s.lastTrickWin.seat))} 트릭 획득` });
+  }
+
+  if (playLogEntries.length > 20) playLogEntries = playLogEntries.slice(-20);
 }
 
 socket.on("state", (s) => {
   checkPlaySound(s);
   checkActionEvents(s);
   checkDragonGift(s);
-  checkTrickWin(s);
+  updatePlayLog(s);
   checkTichuSound(s);
   if (s.phase === "grand" && (!state || state.phase !== "grand")) {
     exchangeStage = { left: null, across: null, right: null };

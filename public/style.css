@@ -111,6 +111,10 @@ input[type=text] {
 .topbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .topbar-right .chip { font-size: 10px; white-space: nowrap; }
 
+/* 방금 낸 카드 로그: 점수표 줄 바로 아래, 왼쪽 상단. 최대 3줄만 보이고 그 이상은 스크롤 없이 위로 밀려 사라짐 */
+.play-log { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; max-height: 54px; overflow: hidden; padding: 4px 10px 0; gap: 1px; pointer-events: none; }
+.play-log-line { font-size: 11px; line-height: 17px; color: var(--ink-dim, rgba(255,255,255,.75)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
 .compass { position: relative; display: grid; grid-template-columns: 0.7fr 2.6fr 0.7fr; grid-template-rows: 0.9fr 1.8fr 0.9fr; height: 100%; width: 100%; max-width: 100%; padding: 6px 6px; gap: 8px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
 .seat-box {
   border: 1px solid var(--panel-line); border-radius: 8px; background: var(--panel);
@@ -149,12 +153,6 @@ input[type=text] {
   position: absolute; top: 6px; left: 8px;
   background: rgba(138,90,26,.85); color: #fff3da; font-size: 10px; font-weight: 700;
   padding: 3px 9px; border-radius: 10px; white-space: nowrap;
-}
-
-.trick-win-tag {
-  position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
-  background: rgba(46,139,111,.88); color: #eafff6; font-size: 10px; font-weight: 700;
-  padding: 3px 10px; border-radius: 10px; white-space: nowrap; z-index: 1;
 }
 
 .chat-bubble-overlay {
@@ -222,6 +220,8 @@ input[type=text] {
 /* 특수카드 중앙 아이콘 (참새/용/봉황 공통) */
 .card .center-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; pointer-events: none; }
 .card.small .center-icon { font-size: 14px; }
+.card .center-icon img { display: block; width: 26px; height: 26px; object-fit: contain; }
+.card.small .center-icon img { width: 18px; height: 18px; }
 
 /* 참새 카드 전용: 좌상단/우하단 "1" */
 .card.special-sparrow .corner-tl, .card.special-sparrow .corner-br { position: absolute; font-size: 10px; font-weight: 700; color: #33506b; }
