@@ -216,17 +216,23 @@ input[type=text] {
 .card.selected { transform: translateY(-14px); box-shadow: 0 0 0 2px var(--gold), 0 6px 10px rgba(0,0,0,.4); }
 .card.picking { transform: translateY(-14px); box-shadow: 0 0 0 2px var(--star), 0 6px 10px rgba(0,0,0,.4); }
 
-/* 특수카드 중앙 아이콘 (참새/용/봉황 공통) */
-.card .center-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; pointer-events: none; }
+/* 특수카드 중앙 아이콘 (참새/용/봉황 공통). 아래쪽 글자(용/봉황/개 라벨)와 안 겹치게 살짝 위쪽에 배치 */
+.card .center-icon { position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; pointer-events: none; }
 .card.small .center-icon { font-size: 14px; }
-.card .center-icon img { display: block; width: 26px; height: 26px; object-fit: contain; }
-.card.small .center-icon img { width: 18px; height: 18px; }
+.card .center-icon img { display: block; width: 32px; height: 32px; object-fit: contain; }
+.card.small .center-icon img { width: 22px; height: 22px; }
+
+/* 참새는 아래쪽에 글자 라벨이 없어서(좌상단/우하단 숫자만 있음) 아이콘을 다시 정중앙으로.
+   다만 위아래 숫자와 겹치지 않도록 다른 특수카드보다 살짝 작게 유지 */
+.card.special-sparrow .center-icon { top: 50%; }
+.card.special-sparrow .center-icon img { width: 30px; height: 30px; }
+.card.small.special-sparrow .center-icon img { width: 20px; height: 20px; }
 
 /* 참새 카드 전용: 좌상단/우하단 "1" */
-.card.special-sparrow .corner-tl, .card.special-sparrow .corner-br { position: absolute; font-size: 10px; font-weight: 700; color: #33506b; }
-.card.special-sparrow .corner-tl { top: 3px; left: 5px; }
-.card.special-sparrow .corner-br { bottom: 3px; right: 5px; transform: rotate(180deg); }
-.card.small.special-sparrow .corner-tl, .card.small.special-sparrow .corner-br { font-size: 8px; }
+.card.special-sparrow .corner-tl, .card.special-sparrow .corner-br { position: absolute; font-size: 9px; line-height: 1; font-weight: 700; color: #33506b; }
+.card.special-sparrow .corner-tl { top: 2px; left: 4px; }
+.card.special-sparrow .corner-br { bottom: 2px; right: 4px; transform: rotate(180deg); }
+.card.small.special-sparrow .corner-tl, .card.small.special-sparrow .corner-br { font-size: 7px; }
 
 .hand-wrap { border-top: 1px solid var(--panel-line); background: rgba(0,0,0,.2); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 100vw; overflow: hidden; box-sizing: border-box; }
 .hand-actions { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
