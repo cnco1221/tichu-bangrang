@@ -33,6 +33,11 @@ class Room {
     this.pendingRankedResult = null; // { winners:[nickname], losers:[nickname] } - 서버가 소비 후 null로 비움
     this.roundHistory = []; // [{ round, teamPoints: {0,1} }, ...] - 라운드별 점수 기록(게임 전체 기준)
     this.EXCHANGE_SUMMARY_DELAY_MS = 3200; // 교환 완료 후 실제 플레이 시작까지 대기(클라 요약화면과 맞춤). 테스트에서 0으로 낮춰 씀
+    this.LAST_CARD_DELAY_MS = 1500; // 라운드를 끝낸 마지막 카드가 화면에 보인 뒤 결과창으로 넘어가기까지 대기
+    this.ROUND_END_AUTO_MS = 10000; // 라운드 결과창에서 자동으로 다음 라운드로 넘어가기까지 대기
+    this._roundEndTimer = null;
+    this.roundEndDeadline = null;
+    this.lastTrickWin = null; // { seat, seq } - 방금 트릭을 가져간 사람(보드 표시용)
     this.resetHandState();
   }
 
@@ -55,8 +60,10 @@ class Room {
     this.requestSatisfied = true;
     this.lastDragonGift = null; // { from, to } - 용으로 이긴 트릭을 누구에게 줬는지(보드 표시용)
     this.strikesThisHand = [0, 0, 0, 0]; // 이번 라운드 동안 새로 쌓인 잠수 스택 수(0이면 다음 라운드 시작 시 전체 스택 초기화)
+    this.pendingRoundEnd = false; // 라운드를 끝낸 마지막 카드를 잠깐 보여주는 동안 추가 액션을 막는 잠금
     this._clearExchangeTimer();
     this._clearTimer();
+    this._clearRoundEndTimer();
   }
 
   /* ---------------- 좌석 / 관전자 ---------------- */
@@ -263,9 +270,10 @@ class Room {
 
   _armExchangeTimer() {
     this._clearExchangeTimer();
-    this.exchangeDeadline = Date.now() + 30000;
+    const ms = 60000; // 카드 교환 제한시간 1분
+    this.exchangeDeadline = Date.now() + ms;
     const room = this;
-    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), 30000);
+    this._exchangeTimer = setTimeout(() => room._onExchangeTimeout(), ms);
   }
 
   _clearExchangeTimer() {
@@ -357,6 +365,7 @@ class Room {
     if (this.phase !== "play") return { error: "지금은 낼 수 없어요" };
     if (this.pendingDragonChoice !== null) return { error: "용 카드를 받을 사람을 먼저 정해주세요" };
     if (this.pendingDogTransfer !== null) return { error: "개 카드가 전달되는 중이에요" };
+    if (this.pendingRoundEnd) return { error: "라운드가 곧 종료돼요" };
     if (this.finished[seat]) return { error: "이미 낸 사람이에요" };
 
     const hand = this.hands[seat];
@@ -456,7 +465,7 @@ class Room {
       this._clearTimer();
       const room = this;
       setTimeout(() => {
-        if (room.phase !== "play" || room.pendingDogTransfer !== mate) return; // 그 사이 라운드/게임이 끝났으면 무시
+        if (room.phase !== "play" || room.pendingDogTransfer !== mate || room.pendingRoundEnd) return; // 그 사이 라운드/게임이 끝났으면 무시
         room.pendingDogTransfer = null;
         room._finishTrickAndLead(mate, { skipScoring: true, silent: true });
         room.notify(room.code);
@@ -479,6 +488,7 @@ class Room {
 
   pass(seat) {
     if (this.phase !== "play") return { error: "지금은 패스할 수 없어요" };
+    if (this.pendingRoundEnd) return { error: "라운드가 곧 종료돼요" };
     if (this.turnSeat !== seat) return { error: "당신 차례가 아니에요" };
     if (this.currentTrick.lastCombo === null) return { error: "리드할 때는 패스할 수 없어요" };
 
@@ -526,6 +536,8 @@ class Room {
     if (!skipScoring && !this.currentTrick.plays.some((p) => p.combo.isDragon)) {
       const pile = this.currentTrick.plays.flatMap((p) => p.cards);
       this.wonPiles[winnerSeat].push(...pile);
+      this.actionSeq++;
+      this.lastTrickWin = { seat: winnerSeat, seq: this.actionSeq };
     }
     this._leadNext(winnerSeat, { silent });
   }
@@ -559,15 +571,30 @@ class Room {
       const [a, b] = this.finishOrder;
       if (TEAM_OF_SEAT[a] === TEAM_OF_SEAT[b]) {
         this.doubleWin = TEAM_OF_SEAT[a];
-        this._endHand();
+        this._scheduleRoundEnd();
         return { ok: true, roundOver: true };
       }
     }
     if (this.finishOrder.length === 3 && !this.doubleWin) {
-      this._endHand();
+      this._scheduleRoundEnd();
       return { ok: true, roundOver: true };
     }
     return { ok: true };
+  }
+
+  // 라운드를 끝낸 마지막 카드가 보드에 잠깐 보이도록, 실제 라운드 종료 처리를 살짝 늦춤
+  _scheduleRoundEnd() {
+    if (this.pendingRoundEnd) return;
+    this._clearTimer();
+    this.turnSeat = null; // 그 사이 아무도 못 냄
+    this.pendingRoundEnd = true;
+    const room = this;
+    setTimeout(() => {
+      if (room.phase !== "play" || !room.pendingRoundEnd) return; // 그 사이 취소/무효 처리됐으면 무시
+      room.pendingRoundEnd = false;
+      room._endHand();
+      room.notify(room.code);
+    }, this.LAST_CARD_DELAY_MS);
   }
 
   /* ---------------- 라운드 종료 / 점수 계산 ---------------- */
@@ -644,14 +671,34 @@ class Room {
         if (winners.length || losers.length) this.pendingRankedResult = { winners, losers };
       }
     }
+
+    if (this.phase === "roundEnd") this._armRoundEndTimer();
   }
 
   nextHand() {
     if (this.phase !== "roundEnd") return;
+    this._clearRoundEndTimer();
     this.startHand();
   }
 
   /* ---------------- 턴 타이머 / 잠수(탈주) 처리 ---------------- */
+
+  _armRoundEndTimer() {
+    this._clearRoundEndTimer();
+    this.roundEndDeadline = Date.now() + this.ROUND_END_AUTO_MS;
+    const room = this;
+    this._roundEndTimer = setTimeout(() => {
+      if (room.phase !== "roundEnd") return;
+      room.nextHand();
+      room.notify(room.code);
+    }, this.ROUND_END_AUTO_MS);
+  }
+
+  _clearRoundEndTimer() {
+    if (this._roundEndTimer) clearTimeout(this._roundEndTimer);
+    this._roundEndTimer = null;
+    this.roundEndDeadline = null;
+  }
 
   _clearTimer() {
     if (this.turnTimer) clearTimeout(this.turnTimer);
@@ -701,6 +748,7 @@ class Room {
 
   _abort(reason) {
     this._clearTimer();
+    this._clearRoundEndTimer();
     this.phase = "aborted";
     this.abortReason = reason;
   }
@@ -710,8 +758,12 @@ class Room {
   requestCancel(seat) {
     if (this.phase === "lobby" || this.phase === "gameover" || this.phase === "aborted") return;
     this.cancelVotes.add(seat);
+    for (let s = 0; s < 4; s++) {
+      if (this.isBot(s)) this.cancelVotes.add(s); // 봇은 게임 취소 제안에 항상 동의
+    }
     if (this.cancelVotes.size >= 4) {
       this._clearTimer();
+      this._clearRoundEndTimer();
       this.phase = "lobby";
       for (const p of this.players) if (p) p.ready = false;
       this.cancelVotes.clear();
@@ -784,18 +836,21 @@ class Room {
     }
 
     if (isLeading) {
-      const nonDog = hand.filter((c) => c.special !== "dog");
-      const pool = nonDog.length > 0 ? nonDog : hand;
-      const lowest = pool.slice().sort((a, b) => a.rank - b.rank)[0];
+      const leadCombo = this._findBotLeadCombo(hand) || (() => {
+        const nonDog = hand.filter((c) => c.special !== "dog");
+        const pool = nonDog.length > 0 ? nonDog : hand;
+        const lowest = pool.slice().sort((a, b) => a.rank - b.rank)[0];
+        return classify([lowest]);
+      })();
       const opts = {};
-      if (lowest.special === "sparrow") {
+      if (leadCombo.cards.some((c) => c.special === "sparrow")) {
         const myRanks = new Set(hand.filter((c) => !c.special).map((c) => c.rank));
         const candidates = [];
         for (let r = 2; r <= 14; r++) if (!myRanks.has(r)) candidates.push(r);
         const pickPool = candidates.length ? candidates : Array.from({ length: 13 }, (_, i) => i + 2);
         opts.requestRank = pickPool[Math.floor(Math.random() * pickPool.length)];
       }
-      this.playCards(seat, [lowest.id], opts);
+      this.playCards(seat, leadCombo.cards.map((c) => c.id), opts);
       return;
     }
 
@@ -821,6 +876,7 @@ class Room {
     const nonSpecial = hand.filter((c) => !c.special);
     const byRank = {};
     for (const c of nonSpecial) (byRank[c.rank] = byRank[c.rank] || []).push(c);
+    const ranksAsc = Object.keys(byRank).map(Number).sort((a, b) => a - b);
 
     let best = null;
     const consider = (combo) => {
@@ -837,8 +893,34 @@ class Room {
       for (const rank in byRank) {
         if (byRank[rank].length >= need) consider(classify(byRank[rank].slice(0, need)));
       }
+    } else if (prevCombo.type === "straight") {
+      for (const run of this._consecutiveRuns(ranksAsc)) {
+        if (run.length < prevCombo.len) continue;
+        for (let s = 0; s + prevCombo.len <= run.length; s++) {
+          const runRanks = run.slice(s, s + prevCombo.len);
+          consider(classify(runRanks.map((r) => byRank[r][0])));
+        }
+      }
+    } else if (prevCombo.type === "pairSequence") {
+      const needPairs = prevCombo.len / 2;
+      const pairRanks = ranksAsc.filter((r) => byRank[r].length >= 2);
+      for (const run of this._consecutiveRuns(pairRanks)) {
+        if (run.length < needPairs) continue;
+        for (let s = 0; s + needPairs <= run.length; s++) {
+          const runRanks = run.slice(s, s + needPairs);
+          consider(classify(runRanks.flatMap((r) => byRank[r].slice(0, 2))));
+        }
+      }
+    } else if (prevCombo.type === "fullhouse") {
+      for (const r of ranksAsc) {
+        if (byRank[r].length < 3) continue;
+        for (const r2 of ranksAsc) {
+          if (r2 === r || byRank[r2].length < 2) continue;
+          consider(classify([...byRank[r].slice(0, 3), ...byRank[r2].slice(0, 2)]));
+        }
+      }
     }
-    // 스트레이트/연속페어/풀하우스는 봇이 직접 구성하진 않고, 아래 포카드 봄으로만 대응 시도
+    // 스트레이트플러시 봄은 봇이 직접 구성하진 않고, 아래 포카드 봄으로만 대응 시도
 
     // 포카드 봄(모든 상황에서 이 조합 하나로 대응 가능한지도 확인)
     for (const rank in byRank) {
@@ -846,6 +928,87 @@ class Room {
     }
 
     return best;
+  }
+
+  // 정렬된 랭크 배열에서 연속된 구간들을 뽑아냄 (예: [2,3,4,7,8] -> [[2,3,4],[7,8]])
+  _consecutiveRuns(sortedRanks) {
+    const runs = [];
+    let current = [];
+    for (const r of sortedRanks) {
+      if (current.length && r !== current[current.length - 1] + 1) {
+        runs.push(current);
+        current = [];
+      }
+      current.push(r);
+    }
+    if (current.length) runs.push(current);
+    return runs;
+  }
+
+  // 리드할 때 낼 조합을 손에서 찾음: 페어/트리플/풀하우스/스트레이트/연속페어 중
+  // 가장 많은 장수를 한 번에 처리할 수 있는 조합을 우선 고름(패를 계속 싱글로만 내지 않도록).
+  // 마땅한 조합이 없으면 null을 반환하고, 호출부에서 최저 싱글로 대체함.
+  _findBotLeadCombo(hand) {
+    const nonDog = hand.filter((c) => c.special !== "dog");
+    const pool = nonDog.length > 0 ? nonDog : hand;
+    const groups = {};
+    for (const c of pool) {
+      if (c.special === "phoenix" || c.special === "dragon") continue; // 봉황/용은 단순화를 위해 리드 조합 구성에서 제외
+      const r = c.special === "sparrow" ? 1 : c.rank;
+      (groups[r] = groups[r] || []).push(c);
+    }
+    const ranksAsc = Object.keys(groups).map(Number).sort((a, b) => a - b);
+    const candidates = [];
+
+    for (const r of ranksAsc) {
+      const cards = groups[r];
+      if (r === 1) continue; // 참새는 페어/트리플 불가
+      if (cards.length >= 2) {
+        const combo = classify(cards.slice(0, 2));
+        if (combo) candidates.push(combo);
+      }
+      if (cards.length >= 3) {
+        const combo = classify(cards.slice(0, 3));
+        if (combo) candidates.push(combo);
+      }
+    }
+
+    // 풀하우스: 트리플 랭크 + 다른 페어 랭크
+    for (const r of ranksAsc) {
+      if (r === 1 || groups[r].length < 3) continue;
+      for (const r2 of ranksAsc) {
+        if (r2 === r || r2 === 1 || groups[r2].length < 2) continue;
+        const combo = classify([...groups[r].slice(0, 3), ...groups[r2].slice(0, 2)]);
+        if (combo && combo.type === "fullhouse") candidates.push(combo);
+      }
+    }
+
+    // 스트레이트 (연속 랭크, 랭크당 1장씩; 참새를 1로 사용 가능)
+    for (const run of this._consecutiveRuns(ranksAsc)) {
+      for (let len = 5; len <= run.length; len++) {
+        for (let s = 0; s + len <= run.length; s++) {
+          const runRanks = run.slice(s, s + len);
+          const combo = classify(runRanks.map((r) => groups[r][0]));
+          if (combo && (combo.type === "straight" || combo.type === "bombStraight")) candidates.push(combo);
+        }
+      }
+    }
+
+    // 연속페어(계단)
+    const pairRanks = ranksAsc.filter((r) => r !== 1 && groups[r].length >= 2);
+    for (const run of this._consecutiveRuns(pairRanks)) {
+      for (let len = 2; len <= run.length; len++) {
+        for (let s = 0; s + len <= run.length; s++) {
+          const runRanks = run.slice(s, s + len);
+          const combo = classify(runRanks.flatMap((r) => groups[r].slice(0, 2)));
+          if (combo && combo.type === "pairSequence") candidates.push(combo);
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => b.cards.length - a.cards.length || a.power - b.power);
+    return candidates[0];
   }
 
   /* ---------------- 상태 직렬화 ---------------- */
@@ -883,6 +1046,8 @@ class Room {
       lastAction: this.lastAction,
       actionSeq: this.actionSeq,
       lastDragonGift: this.lastDragonGift,
+      lastTrickWin: this.lastTrickWin,
+      roundEndDeadline: this.roundEndDeadline,
       fixedSeats: this.fixedSeats,
       hostSeat: this.players.findIndex((p) => p && !p.isBot && p.pid === this.hostPid),
       ranked: this.ranked,

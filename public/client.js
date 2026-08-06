@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.18"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.19"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -139,6 +139,7 @@ function render() {
   }
   if (timerTickHandle && (!state || state.phase !== "play")) { clearInterval(timerTickHandle); timerTickHandle = null; }
   if (exchangeTimerTickHandle && (!state || state.phase !== "exchange")) { clearInterval(exchangeTimerTickHandle); exchangeTimerTickHandle = null; }
+  if (roundEndTimerTickHandle && (!state || state.phase !== "roundEnd")) { clearInterval(roundEndTimerTickHandle); roundEndTimerTickHandle = null; }
 
   // 게임 상태가 자주 갱신돼도(다른 플레이어/봇 행동 등) 채팅 입력창 포커스/커서/내용이 안 날아가게 보존
   const active = document.activeElement;
@@ -295,7 +296,7 @@ function openSignupModal() {
   backdrop.innerHTML = `
     <div class="modal" style="max-width:280px;">
       <h3 class="accent" style="font-size:24px">회원가입</h3>
-      <input type="text" id="signupName" placeholder="이름(관리자만 볼 수 있어요)" maxlength="20" />
+      <input type="text" id="signupName" placeholder="방랑단 닉네임(회원 확인용)" maxlength="20" />
       <input type="text" id="signupNickname" placeholder="닉네임" maxlength="10" />
       <input type="password" id="signupPassword" placeholder="비밀번호" />
       <div class="status-line">가입 신청 후 관리자 승인이 필요해요</div>
@@ -376,7 +377,7 @@ function openAdminPanel(activeTab) {
       content.innerHTML = res.pending.length
         ? res.pending.map((m) => `
             <div class="admin-row">
-              <div>${escapeHtml(m.name)} (${escapeHtml(m.nickname)})</div>
+              <div>방랑단 닉네임: ${escapeHtml(m.name)}<br/>로그인 닉네임: ${escapeHtml(m.nickname)}</div>
               <div class="hand-actions">
                 <button class="small primary" data-approve="${m.nickname}">승인</button>
                 <button class="small danger" data-reject="${m.nickname}">거절</button>
@@ -396,7 +397,7 @@ function openAdminPanel(activeTab) {
       content.innerHTML = res.members.length
         ? res.members.map((m) => `
             <div class="admin-row">
-              <div>${escapeHtml(m.name)} (${escapeHtml(m.nickname)}) · ${m.wins}승 ${m.losses}패</div>
+              <div>방랑단 닉네임: ${escapeHtml(m.name)}<br/>로그인 닉네임: ${escapeHtml(m.nickname)} · ${m.wins}승 ${m.losses}패</div>
               <div class="hand-actions">
                 <button class="small" data-resetpw="${m.nickname}">비번 변경</button>
                 <button class="small danger" data-delmember="${m.nickname}">삭제</button>
@@ -920,10 +921,14 @@ function renderPlay() {
   const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
+  const trickWinTag = (state.lastTrickWin && Date.now() < trickWinVisibleUntil)
+    ? `<div class="trick-win-tag">${seatLabel(state.lastTrickWin.seat)}이(가) 트릭을 가져갔어요</div>`
+    : "";
   const centerHtml = `
     ${lastPlay ? `<div class="trick-direction dir-${fromClass.replace("from-", "")}"></div>` : ""}
     ${requestedTag}
     ${dragonGiftTag}
+    ${trickWinTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
     ${lastPlay ? `<div class="combo-label"><div class="who">${seatLabel(lastPlay.seat)}</div><div class="what">${comboLabelText}</div></div>` : ""}
   `;
@@ -1013,6 +1018,20 @@ function startExchangeTimerTick() {
   };
   tick();
   exchangeTimerTickHandle = setInterval(tick, 1000);
+}
+
+let roundEndTimerTickHandle = null;
+function startRoundEndTimerTick() {
+  if (roundEndTimerTickHandle) clearInterval(roundEndTimerTickHandle);
+  const tick = () => {
+    const chip = document.getElementById("roundEndTimerChip");
+    if (!chip || !state || state.phase !== "roundEnd") return;
+    if (!state.roundEndDeadline) { chip.textContent = ""; return; }
+    const remain = Math.max(0, Math.ceil((state.roundEndDeadline - Date.now()) / 1000));
+    chip.textContent = `${remain}초 후 다음 라운드로 자동 진행`;
+  };
+  tick();
+  roundEndTimerTickHandle = setInterval(tick, 1000);
 }
 
 function submitPlay(ids, requestRank) {
@@ -1146,8 +1165,10 @@ function renderRoundEnd() {
         <tr><td>티츄 보너스</td><td>${s.bonuses[0]}</td><td>${s.bonuses[1]}</td></tr>
         <tr><td><b>누적</b></td><td><b>${state.teamScores[0]}</b></td><td><b>${state.teamScores[1]}</b></td></tr>
       </table>
+      <div class="chip" id="roundEndTimerChip" style="margin-top:6px;"></div>
     </div>
   `;
+  startRoundEndTimerTick();
 }
 
 function openRoundHistoryModal() {
@@ -1208,7 +1229,7 @@ function playCardSound() {
     o.type = "triangle";
     o.frequency.value = 540;
     g.gain.setValueAtTime(0.001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.38, ctx.currentTime + 0.01);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
     o.connect(g); g.connect(ctx.destination);
     o.start();
@@ -1229,7 +1250,7 @@ function playTrickStartSound() {
       o.frequency.value = freq;
       const t0 = now + i * 0.09;
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.13, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.32, t0 + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
       o.connect(g); g.connect(ctx.destination);
       o.start(t0); o.stop(t0 + 0.18);
@@ -1248,7 +1269,7 @@ function playPassSound() {
     o.frequency.setValueAtTime(320, ctx.currentTime);
     o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.12);
     g.gain.setValueAtTime(0.001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.26, ctx.currentTime + 0.01);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
     o.connect(g); g.connect(ctx.destination);
     o.start();
@@ -1302,10 +1323,22 @@ function checkDragonGift(s) {
   }
 }
 
+let trickWinVisibleUntil = 0;
+let lastSeenTrickWinSeq = 0;
+function checkTrickWin(s) {
+  if (!s.lastTrickWin) return;
+  if (s.lastTrickWin.seq > lastSeenTrickWinSeq) {
+    lastSeenTrickWinSeq = s.lastTrickWin.seq;
+    trickWinVisibleUntil = Date.now() + 3000;
+    setTimeout(() => render(), 3000); // 3초 후 사라지도록 재렌더
+  }
+}
+
 socket.on("state", (s) => {
   checkPlaySound(s);
   checkActionEvents(s);
   checkDragonGift(s);
+  checkTrickWin(s);
   if (s.phase === "grand" && (!state || state.phase !== "grand")) {
     exchangeStage = { left: null, across: null, right: null };
     exchangeSelectedCardId = null;
