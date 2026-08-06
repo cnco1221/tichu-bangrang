@@ -9,6 +9,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
+// 예상 못한 에러(예: DB 호출 실패) 하나 때문에 서버 전체가 죽지 않도록 하는 안전장치
+process.on("unhandledRejection", (err) => {
+  console.error("[unhandledRejection]", err);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err);
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
 const rooms = new Map(); // code -> Room
@@ -156,10 +164,12 @@ io.on("connection", (socket) => {
     broadcast(code);
   });
 
-  socket.on("setRanked", ({ enabled }) => {
+  socket.on("setRanked", ({ enabled }, cb) => {
     const { room, seat, code } = getRoomSeat(socket);
     if (!room || seat === -1) return;
-    room.setRanked(enabled);
+    const ok = room.setRanked(enabled);
+    if (!ok && enabled) { cb && cb({ error: "봇이 있으면 등급전을 켤 수 없어요(봇을 먼저 빼주세요)" }); return; }
+    cb && cb({ ok: true });
     broadcast(code);
   });
 
@@ -242,6 +252,11 @@ io.on("connection", (socket) => {
     cb && cb(await accounts.adminResetPassword(nickname, newPassword));
   });
 
+  socket.on("adminSetRecord", async ({ nickname, wins, losses }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminSetRecord(nickname, wins, losses));
+  });
+
   socket.on("addBot", (_, cb) => {
     const { room, code } = getRoomCode(socket);
     if (!room) return cb && cb({ error: "방에 먼저 들어가야 해요" });
@@ -249,7 +264,7 @@ io.on("connection", (socket) => {
     const seat = room.players.findIndex((p) => p === null);
     if (seat === -1) return cb && cb({ error: "빈 자리가 없어요" });
     const ok = room.addBot(seat);
-    if (!ok) return cb && cb({ error: "최소 한 자리는 사람이어야 해요(전원 봇으로는 채울 수 없어요)" });
+    if (!ok) return cb && cb({ error: room.ranked ? "등급전 중에는 봇을 추가할 수 없어요" : "최소 한 자리는 사람이어야 해요(전원 봇으로는 채울 수 없어요)" });
     cb && cb({ ok: true, seat });
     if (room.players.every((p) => p !== null && p.ready)) room.startGame();
     afterMutation(code);
@@ -262,6 +277,20 @@ io.on("connection", (socket) => {
     if (!ok) return cb && cb({ error: "그 봇을 뺄 수 없어요" });
     cb && cb({ ok: true });
     broadcast(code);
+  });
+
+  socket.on("leaveRoom", (_, cb) => {
+    const { room, code } = getRoomCode(socket);
+    if (room) {
+      room.removeBySocket(socket.id); // 소켓은 그대로 두고 방에서만 빠짐(로그인 세션 유지)
+      socket.leave(code);
+      socketRoom.delete(socket.id);
+      const hasHumanPlayer = room.players.some((p) => p && !p.isBot);
+      const hasSpectator = room.spectators.length > 0;
+      if (!hasHumanPlayer && !hasSpectator) rooms.delete(code);
+      else broadcast(code);
+    }
+    cb && cb({ ok: true });
   });
 
   socket.on("setReady", ({ ready }) => {

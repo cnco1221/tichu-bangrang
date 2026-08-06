@@ -66,6 +66,7 @@ async function login({ nickname, password }) {
   const db = initFirebase();
   if (!db) return { error: "서버에 아직 회원 시스템이 설정되지 않았어요(관리자에게 문의)" };
   nickname = String(nickname || "").trim().slice(0, 10);
+  if (!nickname) return { error: "닉네임을 입력해주세요" };
   const snap = await db.collection(MEMBERS).doc(nickname).get();
   if (!snap.exists) return { error: "존재하지 않는 닉네임이에요" };
   const data = snap.data();
@@ -103,6 +104,7 @@ async function adminListPending() {
 async function adminApprove(nickname) {
   const db = initFirebase();
   if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
   await db.collection(MEMBERS).doc(nickname).set({ approved: true }, { merge: true });
   return { ok: true };
 }
@@ -110,6 +112,7 @@ async function adminApprove(nickname) {
 async function adminReject(nickname) {
   const db = initFirebase();
   if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
   await db.collection(MEMBERS).doc(nickname).delete();
   return { ok: true };
 }
@@ -127,6 +130,7 @@ async function adminListMembers() {
 async function adminDeleteMember(nickname) {
   const db = initFirebase();
   if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
   await db.collection(MEMBERS).doc(nickname).delete();
   return { ok: true };
 }
@@ -134,10 +138,24 @@ async function adminDeleteMember(nickname) {
 async function adminResetPassword(nickname, newPassword) {
   const db = initFirebase();
   if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
   newPassword = String(newPassword || "");
   if (newPassword.length < 3) return { error: "비밀번호가 너무 짧아요" };
   const { hash, salt } = hashPassword(newPassword);
   await db.collection(MEMBERS).doc(nickname).set({ passwordHash: hash, salt }, { merge: true });
+  return { ok: true };
+}
+
+async function adminSetRecord(nickname, wins, losses) {
+  const db = initFirebase();
+  if (!db) return { error: "설정 안 됨" };
+  if (!nickname) return { error: "닉네임이 없어요" };
+  wins = Math.max(0, parseInt(wins, 10) || 0);
+  losses = Math.max(0, parseInt(losses, 10) || 0);
+  const ref = db.collection(MEMBERS).doc(nickname);
+  const snap = await ref.get();
+  if (!snap.exists) return { error: "존재하지 않는 멤버예요" };
+  await ref.set({ wins, losses }, { merge: true });
   return { ok: true };
 }
 
@@ -156,10 +174,10 @@ async function getRanking() {
     if (total === 0) {
       unranked.push({ nickname: v.nickname });
     } else {
-      ranked.push({ nickname: v.nickname, wins, losses, winRate: wins / total });
+      ranked.push({ nickname: v.nickname, wins, losses, score: wins - losses, winRate: wins / total });
     }
   });
-  ranked.sort((a, b) => b.winRate - a.winRate || b.wins - a.wins);
+  ranked.sort((a, b) => b.score - a.score || b.wins - a.wins);
   return { ranked, unranked };
 }
 
@@ -181,6 +199,6 @@ module.exports = {
   signup, login,
   adminLogin, adminChangePassword,
   adminListPending, adminApprove, adminReject,
-  adminListMembers, adminDeleteMember, adminResetPassword,
+  adminListMembers, adminDeleteMember, adminResetPassword, adminSetRecord,
   getRanking, recordRankedResult,
 };
