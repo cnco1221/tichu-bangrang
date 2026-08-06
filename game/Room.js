@@ -26,6 +26,8 @@ class Room {
     this.turnDeadline = null;
     this.lastAction = null; // { type: 'pass', seat } 최근 이벤트(연출용)
     this.actionSeq = 0;
+    this._pidCounter = 0; // 좌석이 섞이거나 옮겨져도 "이 사람"을 계속 추적하기 위한 고유 id 발급용
+    this.hostPid = null; // 현재 방장의 pid (좌석 인덱스가 아니라 사람 자체를 추적)
     this.fixedSeats = false; // true면 게임 시작 시 좌석을 섞지 않고 그대로 시작
     this.ranked = false; // 등급전이면 무조건 팀 랜덤 + 종료 시 승/패 기록
     this.pendingRankedResult = null; // { winners:[nickname], losers:[nickname] } - 서버가 소비 후 null로 비움
@@ -62,17 +64,33 @@ class Room {
   addPlayer(socketId, name, token, memberNickname) {
     const seat = this.players.findIndex((p) => p === null);
     if (seat === -1) return null;
-    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false, token: token || null, disconnectTimer: null, memberNickname: memberNickname || null };
+    const pid = ++this._pidCounter;
+    this.players[seat] = { socketId, name: name || `플레이어${seat + 1}`, ready: false, connected: true, abandonCount: 0, isBot: false, token: token || null, disconnectTimer: null, memberNickname: memberNickname || null, pid };
+    if (this.hostPid === null) this.hostPid = pid; // 방에 처음 들어온 사람이 방장
     return seat;
   }
 
-  addBot(seat) {
+  addBot(seat, actorSeat) {
     if (this.players[seat]) return false;
+    if (actorSeat !== undefined && actorSeat !== null && !this.isHost(actorSeat)) return false; // 방장만 가능
     if (this.ranked) return false; // 등급전 중엔 봇을 추가할 수 없음
     const humanCount = this.players.filter((p) => p && !p.isBot).length;
     if (humanCount === 0) return false; // 최소 한 자리는 사람이어야 함(전원 봇 방지)
-    this.players[seat] = { socketId: null, name: `봇${seat + 1}`, ready: true, connected: true, abandonCount: 0, isBot: true };
+    this.players[seat] = { socketId: null, name: `봇${seat + 1}`, ready: true, connected: true, abandonCount: 0, isBot: true, pid: ++this._pidCounter };
     return true;
+  }
+
+  // 방장이 사라졌으면(방 나감/관전 전환 등) 남아있는 사람 중 한 명에게 방장을 넘김. 봇/관전자는 방장이 될 수 없음.
+  _reassignHostIfNeeded() {
+    const stillValid = this.players.some((p) => p && !p.isBot && p.pid === this.hostPid);
+    if (stillValid) return;
+    const candidate = this.players.find((p) => p && !p.isBot);
+    this.hostPid = candidate ? candidate.pid : null;
+  }
+
+  isHost(seat) {
+    const p = this.players[seat];
+    return !!(p && !p.isBot && p.pid === this.hostPid);
   }
 
   removeBot(seat) {
@@ -103,6 +121,7 @@ class Room {
         this._addAbandonStrike(seat);
       } else {
         this.players[seat] = null;
+        this._reassignHostIfNeeded();
       }
     }
     const specIdx = this.spectators.findIndex((s) => s.socketId === socketId);
@@ -143,6 +162,7 @@ class Room {
       const seat = this.addPlayer(socketId, name);
       const idx = this.spectators.findIndex((s) => s.socketId === socketId);
       if (idx !== -1) this.spectators.splice(idx, 1);
+      this._reassignHostIfNeeded(); // 방장이 없던 상태였다면 새로 들어온 사람이 방장이 될 수 있음
       return seat;
     }
     return null;
@@ -161,6 +181,7 @@ class Room {
     if (!p.isBot && humanCount <= 1) return false; // 남은 사람이 한 명뿐이면 관전으로 못 감
     this.players[seat] = null;
     this.spectators.push({ socketId: p.socketId, name: p.name });
+    this._reassignHostIfNeeded(); // 방장이 관전으로 가면 다른 사람에게 방장이 넘어감
     return true;
   }
 
@@ -174,14 +195,17 @@ class Room {
     return true;
   }
 
-  setFixedSeats(enabled) {
-    if (this.phase !== "lobby") return;
-    if (this.ranked && enabled) return; // 등급전이면 지정석을 켤 수 없음
+  setFixedSeats(enabled, actorSeat) {
+    if (this.phase !== "lobby") return false;
+    if (actorSeat !== undefined && !this.isHost(actorSeat)) return false; // 방장만 가능
+    if (this.ranked && enabled) return false; // 등급전이면 지정석을 켤 수 없음
     this.fixedSeats = !!enabled;
+    return true;
   }
 
-  setRanked(enabled) {
+  setRanked(enabled, actorSeat) {
     if (this.phase !== "lobby") return false;
+    if (actorSeat !== undefined && !this.isHost(actorSeat)) return false; // 방장만 가능
     if (enabled && this.players.some((p) => p && p.isBot)) return false; // 봇이 한 명이라도 있으면 등급전 불가
     this.ranked = !!enabled;
     if (this.ranked) this.fixedSeats = false; // 등급전은 무조건 팀 랜덤(지정석 해제+잠금)
@@ -775,13 +799,53 @@ class Room {
       return;
     }
 
-    const sorted = hand.slice().sort((a, b) => a.rank - b.rank);
-    for (const c of sorted) {
-      if (c.special === "dragon") continue; // 봇은 용은 아껴둠(단순화)
-      const res = this.playCards(seat, [c.id], {});
+    const partnerSeat = teammateOf(seat);
+    if (this.currentTrick.lastSeat === partnerSeat) {
+      // 이미 우리 팀 파트너가 트릭을 이기고 있으면 굳이 넘길 필요 없이 패스
+      this.pass(seat);
+      return;
+    }
+
+    const beating = this._findBotBeatingCombo(hand, this.currentTrick.lastCombo);
+    if (beating) {
+      const res = this.playCards(seat, beating.cards.map((c) => c.id), {});
       if (res.ok) return;
     }
     this.pass(seat);
+  }
+
+  // 현재 트릭(prevCombo)을 이길 수 있는 조합을 손에서 찾음. 같은 족보·장수를 우선 찾고, 안 되면 포카드 봄까지 고려.
+  // 이길 수 있는 것 중 가장 낮은(약한) 걸 고름(불필요하게 좋은 패를 낭비하지 않도록).
+  _findBotBeatingCombo(hand, prevCombo) {
+    if (!prevCombo) return null;
+    const nonSpecial = hand.filter((c) => !c.special);
+    const byRank = {};
+    for (const c of nonSpecial) (byRank[c.rank] = byRank[c.rank] || []).push(c);
+
+    let best = null;
+    const consider = (combo) => {
+      if (combo && canBeat(combo, prevCombo) && (!best || combo.power < best.power)) best = combo;
+    };
+
+    if (prevCombo.type === "single") {
+      for (const c of hand) {
+        if (c.special === "dragon") continue; // 봇은 용은 아껴둠(단순화)
+        consider(classify([c]));
+      }
+    } else if (prevCombo.type === "pair" || prevCombo.type === "triple") {
+      const need = prevCombo.type === "pair" ? 2 : 3;
+      for (const rank in byRank) {
+        if (byRank[rank].length >= need) consider(classify(byRank[rank].slice(0, need)));
+      }
+    }
+    // 스트레이트/연속페어/풀하우스는 봇이 직접 구성하진 않고, 아래 포카드 봄으로만 대응 시도
+
+    // 포카드 봄(모든 상황에서 이 조합 하나로 대응 가능한지도 확인)
+    for (const rank in byRank) {
+      if (byRank[rank].length === 4) consider(classify(byRank[rank]));
+    }
+
+    return best;
   }
 
   /* ---------------- 상태 직렬화 ---------------- */
@@ -820,6 +884,7 @@ class Room {
       actionSeq: this.actionSeq,
       lastDragonGift: this.lastDragonGift,
       fixedSeats: this.fixedSeats,
+      hostSeat: this.players.findIndex((p) => p && !p.isBot && p.pid === this.hostPid),
       ranked: this.ranked,
       roundHistory: this.roundHistory,
     };
