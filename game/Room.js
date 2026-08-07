@@ -277,7 +277,12 @@ class Room {
   _onGrandTimeout() {
     if (this.phase !== "grand") return;
     for (let s = 0; s < 4; s++) {
-      if (this.grandDecision[s] === null) this.callGrandTichu(s, false); // 시간 초과 시 자동 패스
+      if (this.phase !== "grand") break; // 도중에 잠수 스택으로 게임이 무효 처리됐으면 중단
+      if (this.grandDecision[s] === null) {
+        this._addAbandonStrike(s);
+        if (this.phase !== "grand") break;
+        this.callGrandTichu(s, false); // 시간 초과 시 자동 패스
+      }
     }
     this.notify(this.code);
   }
@@ -312,8 +317,10 @@ class Room {
   _onExchangeTimeout() {
     if (this.phase !== "exchange") return;
     for (let s = 0; s < 4; s++) {
-      if (this.phase !== "exchange") break; // 도중에 전원 제출 완료되어 resolve됐으면 중단
+      if (this.phase !== "exchange") break; // 도중에 전원 제출 완료되거나 잠수 스택으로 무효 처리됐으면 중단
       if (this.exchangeSubmit[s]) continue;
+      this._addAbandonStrike(s);
+      if (this.phase !== "exchange") break;
       this.submitExchange(s, this._autoExchangePicks(s));
     }
     this.notify(this.code);
