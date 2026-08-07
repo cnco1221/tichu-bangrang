@@ -3,7 +3,9 @@ const { initFirebase } = require("./firebase");
 
 const MEMBERS = "members";
 const ADMIN_CONFIG_DOC = "adminConfig/main";
+const SEASON_CONFIG_DOC = "seasonConfig/main";
 const INITIAL_ADMIN_PASSWORD = "159";
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function hashPassword(password, salt) {
   salt = salt || crypto.randomBytes(16).toString("hex");
@@ -200,6 +202,31 @@ async function adminSetRecord(nickname, wins, losses) {
   return { ok: true };
 }
 
+/* ---------------- 랭킹 시즌 ---------------- */
+
+// 시즌 시작일/종료일은 "YYYY-MM-DD" 형태의 날짜 문자열로만 저장한다(항상 00시 00분 기준으로 적용됨)
+async function getSeason() {
+  const db = initFirebase();
+  if (!db) return { name: null, startDate: null, endDate: null };
+  const snap = await db.doc(SEASON_CONFIG_DOC).get();
+  if (!snap.exists) return { name: null, startDate: null, endDate: null };
+  const d = snap.data();
+  return { name: d.name || null, startDate: d.startDate || null, endDate: d.endDate || null };
+}
+
+async function adminSetSeason(name, startDate, endDate) {
+  const db = initFirebase();
+  if (!db) return { error: "설정 안 됨" };
+  name = String(name || "").trim().slice(0, 30);
+  startDate = String(startDate || "").trim();
+  endDate = String(endDate || "").trim();
+  if (!name) return { error: "시즌 이름을 입력해주세요" };
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) return { error: "시작일/종료일을 모두 선택해주세요" };
+  if (startDate > endDate) return { error: "종료일이 시작일보다 빠를 수 없어요" };
+  await db.doc(SEASON_CONFIG_DOC).set({ name, startDate, endDate });
+  return { ok: true };
+}
+
 /* ---------------- 랭킹 ---------------- */
 
 async function getRanking() {
@@ -242,4 +269,5 @@ module.exports = {
   adminListPending, adminApprove, adminReject,
   adminListMembers, adminDeleteMember, adminResetPassword, adminRenameNickname, adminSetRecord,
   getRanking, recordRankedResult,
+  getSeason, adminSetSeason,
 };

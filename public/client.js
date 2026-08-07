@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.30"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.31"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -199,6 +199,7 @@ function renderLanding() {
         <div class="suit-chip" style="color:${SUIT_COLOR.sword}">▲</div>
         <div class="suit-chip" style="color:${SUIT_COLOR.pagoda}">●</div>
         <div class="suit-chip" id="adminModeBtn" style="color:${SUIT_COLOR.star}; cursor:pointer;">★</div>
+        <div class="suit-chip" id="seasonModeBtn" style="color:${SUIT_COLOR.jade}; cursor:pointer;" title="랭킹 시즌 설정">◍</div>
       </div>
       <div class="title accent">방랑단 티츄</div>
       ${loggedInAs
@@ -244,6 +245,7 @@ function renderLanding() {
   document.getElementById("globalChatFab").onclick = () => { globalChatOpen = !globalChatOpen; render(); };
   wireGlobalChatPanel();
   document.getElementById("adminModeBtn").onclick = () => openAdminLoginModal();
+  document.getElementById("seasonModeBtn").onclick = () => openSeasonLoginModal();
   document.getElementById("openRankingBtn").onclick = () => openRankingModal();
   const openLoginBtn = document.getElementById("openLoginBtn");
   if (openLoginBtn) openLoginBtn.onclick = () => openLoginModal();
@@ -487,6 +489,70 @@ function openAdminPanel(activeTab) {
   }
 }
 
+/* ---------------- 랭킹 시즌 설정 ---------------- */
+function openSeasonLoginModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:260px;">
+      <h3 class="accent" style="font-size:24px">시즌 설정</h3>
+      <input type="password" id="seasonAdminPassword" placeholder="관리자 비밀번호" />
+      <div class="hand-actions">
+        <button class="primary" id="seasonLoginSubmitBtn">입장</button>
+        <button class="ghost" id="seasonLoginCancelBtn">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("seasonLoginCancelBtn").onclick = () => backdrop.remove();
+  const submit = () => {
+    const password = document.getElementById("seasonAdminPassword").value;
+    socket.emit("adminLogin", { password }, (res) => {
+      if (res.error) return showToast(res.error);
+      isAdminMode = true;
+      backdrop.remove();
+      openSeasonSettingsModal();
+    });
+  };
+  document.getElementById("seasonLoginSubmitBtn").onclick = submit;
+  document.getElementById("seasonAdminPassword").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+}
+
+function openSeasonSettingsModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:280px;">
+      <h3 class="accent" style="font-size:22px">시즌 설정</h3>
+      <div class="status-line">불러오는 중...</div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  socket.emit("getSeason", null, (res) => {
+    const modal = backdrop.querySelector(".modal");
+    if (!modal) return; // 불러오는 사이 창이 닫혔을 수 있음
+    modal.innerHTML = `
+      <h3 class="accent" style="font-size:22px">시즌 설정</h3>
+      <input type="text" id="seasonNameInput" placeholder="시즌 이름 (예: 2026 시즌 1)" maxlength="30" value="${escapeHtml((res && res.name) || "")}" />
+      <div class="my-info-row"><span class="label">시작일</span><input type="date" id="seasonStartInput" value="${(res && res.startDate) || ""}" /></div>
+      <div class="my-info-row"><span class="label">종료일</span><input type="date" id="seasonEndInput" value="${(res && res.endDate) || ""}" /></div>
+      <div class="hint">시작일 00시 00분 ~ 종료일 00시 00분 기준으로 적용돼요</div>
+      <div class="hand-actions">
+        <button class="primary" id="seasonSaveBtn">저장</button>
+        <button class="ghost" id="seasonCancelBtn">닫기</button>
+      </div>`;
+    document.getElementById("seasonCancelBtn").onclick = () => backdrop.remove();
+    document.getElementById("seasonSaveBtn").onclick = () => {
+      const name = document.getElementById("seasonNameInput").value.trim();
+      const startDate = document.getElementById("seasonStartInput").value;
+      const endDate = document.getElementById("seasonEndInput").value;
+      socket.emit("adminSetSeason", { name, startDate, endDate }, (r) => {
+        if (r.error) return showToast(r.error);
+        showToast("시즌 정보가 저장됐어요");
+        backdrop.remove();
+      });
+    };
+  });
+}
+
 /* ---------------- 랭킹 ---------------- */
 function openRankingModal(activeTab) {
   activeTab = activeTab || "ranking";
@@ -498,7 +564,7 @@ function openRankingModal(activeTab) {
   }
   backdrop.innerHTML = `
     <div class="modal" style="max-width:340px;">
-      <h3 class="accent" style="font-size:24px">🏆 랭킹</h3>
+      <div id="rankingHeader" class="ranking-header"><h3 class="accent" style="font-size:20px">불러오는 중...</h3></div>
       <div class="admin-tabs">
         <button class="small ${activeTab === "ranking" ? "primary" : "ghost"}" data-rtab="ranking">랭킹</button>
         <button class="small ${activeTab === "hof" ? "primary" : "ghost"}" data-rtab="hof">명예의 전당</button>
@@ -508,6 +574,16 @@ function openRankingModal(activeTab) {
     </div>`;
   backdrop.querySelectorAll("[data-rtab]").forEach((b) => b.onclick = () => openRankingModal(b.dataset.rtab));
   document.getElementById("rankingCloseBtn").onclick = () => backdrop.remove();
+
+  socket.emit("getSeason", null, (res) => {
+    const header = document.getElementById("rankingHeader");
+    if (!header) return; // 응답 오는 사이 창이 닫혔을 수 있음
+    const name = (res && res.name) || "시즌 미설정";
+    const period = (res && res.startDate && res.endDate)
+      ? `<div class="season-period">${res.startDate.replace(/-/g, ".")} ~ ${res.endDate.replace(/-/g, ".")}</div>`
+      : "";
+    header.innerHTML = `<h3 class="accent" style="font-size:20px">${escapeHtml(name)}</h3>${period}`;
+  });
 
   const content = document.getElementById("rankingTabContent");
   if (activeTab === "hof") {
@@ -957,6 +1033,7 @@ function renderPlay() {
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
   const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length >= 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const comboTypeText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = (state.requestedRank && !state.requestSatisfied)
     ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
     : "";
@@ -968,6 +1045,7 @@ function renderPlay() {
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
+    ${comboTypeText ? `<div class="combo-type-label">${comboTypeText}</div>` : ""}
   `;
 
   const myHand = state.myHand || [];

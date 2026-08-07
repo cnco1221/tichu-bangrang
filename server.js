@@ -245,6 +245,10 @@ io.on("connection", (socket) => {
     cb && cb(res);
   });
 
+  socket.on("getSeason", async (_, cb) => {
+    cb && cb(await accounts.getSeason());
+  });
+
   /* ---------------- 관리자모드 ---------------- */
 
   socket.on("adminLogin", async ({ password }, cb) => {
@@ -309,6 +313,11 @@ io.on("connection", (socket) => {
   socket.on("adminSetRecord", async ({ nickname, wins, losses }, cb) => {
     if (!requireAdmin(cb)) return;
     cb && cb(await accounts.adminSetRecord(nickname, wins, losses));
+  });
+
+  socket.on("adminSetSeason", async ({ name, startDate, endDate }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminSetSeason(name, startDate, endDate));
   });
 
   socket.on("addBot", (_, cb) => {

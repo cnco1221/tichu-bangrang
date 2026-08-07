@@ -201,6 +201,8 @@ input[type=text] {
 @keyframes playFromEast  { from { transform: translateX(80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
 @keyframes playFromWest  { from { transform: translateX(-80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
 .trick-empty { color: var(--ivory-dim); font-size: 11px; letter-spacing: 1px; }
+/* 낸 카드의 족보 이름만 표시 (누가 냈는지는 표시 안 함). 카드가 여러 줄로 접히더라도 항상 카드 아래쪽에 와서 카드를 가리지 않음 */
+.combo-type-label { font-size: 11px; font-weight: 700; color: var(--gold-soft); background: rgba(30,43,35,.08); padding: 2px 10px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
 .requested-tag { position: absolute; top: 6px; right: 8px; background: rgba(30,43,35,.85); color: #f3e0a8; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
 
 /* card */
@@ -281,6 +283,10 @@ input[type=text] {
 .exchange-slot.filled { border-style: solid; border-color: var(--jade); }
 .exchange-slot.awaiting { border-style: solid; border-color: var(--star); background: rgba(63,95,146,.08); }
 .exchange-slot .label { font-size: 10px; }
+
+.ranking-header { text-align: center; }
+.ranking-header h3 { margin: 0; }
+.season-period { font-size: 11px; color: var(--ivory-dim); margin-top: 2px; }
 
 .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .summary-table td, .summary-table th { padding: 6px 10px; border-bottom: 1px solid var(--panel-line); text-align: left; }
