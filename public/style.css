@@ -290,6 +290,7 @@ input[type=text] {
 
 .summary-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .summary-table td, .summary-table th { padding: 6px 10px; border-bottom: 1px solid var(--panel-line); text-align: left; }
+.summary-table td:first-child, .summary-table th:first-child { white-space: nowrap; }
 
 .received-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .received-item .label { font-size: 12px; color: var(--gold-soft); font-weight: 700; }
@@ -335,4 +336,12 @@ input[type=text] {
   .card { width: 44px; height: 66px; }
   .card.small { width: 30px; height: 44px; }
   .scoreboard .team { font-size: 10px; padding: 3px 6px; }
+}
+
+/* PC 등 넓은 화면에서는 모바일 폭으로 가운데 고정해서 좌우로 과하게 늘어나지 않게 함.
+   transform을 줘서 이 안의 position:fixed 요소들(채팅 버튼, 메뉴 등)도 브라우저 창이 아니라
+   이 프레임 기준으로 붙도록 함 */
+@media (min-width: 640px) {
+  body { display: flex; justify-content: center; }
+  #app { max-width: 480px; box-shadow: 0 0 60px rgba(0,0,0,.5); transform: translateZ(0); }
 }

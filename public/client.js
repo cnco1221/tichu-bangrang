@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.32"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.34"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -58,7 +58,6 @@ let timerTickHandle = null;
 const RANK_LABEL = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q", 13: "K", 14: "A" };
 const SUIT_SYMBOL = { jade: "◆", sword: "▲", pagoda: "●", star: "★" };
 const SUIT_COLOR = { jade: "#2e8b6f", sword: "#a33b35", pagoda: "#b5892f", star: "#3b5e9c" };
-const TEAM_NAME = ["옥·탑 팀 (A)", "검·별 팀 (B)"];
 const TEAM_OF_SEAT = [0, 1, 0, 1];
 
 // 방을 나갈 때 소켓 연결은 그대로 유지해서(로그인 세션 안 끊기게) 방에서만 빠짐
@@ -200,9 +199,8 @@ function renderLanding() {
       <div class="cards-row">
         <div class="suit-chip" style="color:${SUIT_COLOR.jade}">◆</div>
         <div class="suit-chip" style="color:${SUIT_COLOR.sword}">▲</div>
-        <div class="suit-chip" style="color:${SUIT_COLOR.pagoda}">●</div>
+        <div class="suit-chip" id="seasonModeBtn" style="color:${SUIT_COLOR.pagoda}; cursor:pointer;">●</div>
         <div class="suit-chip" id="adminModeBtn" style="color:${SUIT_COLOR.star}; cursor:pointer;">★</div>
-        <div class="suit-chip" id="seasonModeBtn" style="color:${SUIT_COLOR.jade}; cursor:pointer;" title="랭킹 시즌 설정">◍</div>
       </div>
       <div class="title accent">방랑단 티츄</div>
       ${loggedInAs
@@ -1331,6 +1329,8 @@ function wireGlobalChatPanel() {
 /* ---------------- Round End ---------------- */
 function renderRoundEnd() {
   const s = state.lastHandSummary || { teamPoints: { 0: 0, 1: 0 }, bonuses: { 0: 0, 1: 0 }, doubleWin: null };
+  const myTeam = (!isSpectator && mySeat !== null) ? TEAM_OF_SEAT[mySeat] : 0;
+  const oppTeam = 1 - myTeam;
   const centerHtml = `<div class="trick-empty">라운드 종료</div>`;
   const bottomHtml = !isSpectator
     ? `<div class="hand-actions"><button class="primary" id="nextHandBtn">다음 라운드</button></div>`
@@ -1348,12 +1348,12 @@ function renderRoundEnd() {
   backdrop.innerHTML = `
     <div class="modal exchange-modal-compact">
       <h3 class="accent" style="font-size:20px">${state.roundHistory ? state.roundHistory.length : ""}라운드 결과</h3>
-      ${s.doubleWin !== null ? `<div class="status-line">${TEAM_NAME[s.doubleWin]} 더블윈! (+200)</div>` : ""}
+      ${s.doubleWin !== null ? `<div class="status-line">${s.doubleWin === myTeam ? "내팀" : "상대팀"} 더블윈! (+200)</div>` : ""}
       <table class="summary-table">
-        <tr><th></th><th>${TEAM_NAME[0]}</th><th>${TEAM_NAME[1]}</th></tr>
-        <tr><td>이번 점수</td><td>${s.teamPoints[0]}</td><td>${s.teamPoints[1]}</td></tr>
-        <tr><td>티츄 보너스</td><td>${s.bonuses[0]}</td><td>${s.bonuses[1]}</td></tr>
-        <tr><td><b>누적</b></td><td><b>${state.teamScores[0]}</b></td><td><b>${state.teamScores[1]}</b></td></tr>
+        <tr><th></th><th>내팀</th><th>상대팀</th></tr>
+        <tr><td>이번 점수</td><td>${s.teamPoints[myTeam]}</td><td>${s.teamPoints[oppTeam]}</td></tr>
+        <tr><td>티츄점수</td><td>${s.bonuses[myTeam]}</td><td>${s.bonuses[oppTeam]}</td></tr>
+        <tr><td><b>누적</b></td><td><b>${state.teamScores[myTeam]}</b></td><td><b>${state.teamScores[oppTeam]}</b></td></tr>
       </table>
       <div class="chip" id="roundEndTimerChip" style="margin-top:6px;"></div>
     </div>
@@ -1384,13 +1384,15 @@ function openRoundHistoryModal() {
 
 /* ---------------- Game Over ---------------- */
 function renderGameOver() {
+  const myTeam = (!isSpectator && mySeat !== null) ? TEAM_OF_SEAT[mySeat] : 0;
+  const oppTeam = 1 - myTeam;
   const winner = state.teamScores[0] > state.teamScores[1] ? 0 : 1;
   app.innerHTML = `
     <div class="lobby">
-      <h2 class="accent" style="font-size:40px">${TEAM_NAME[winner]} 승리!</h2>
+      <h2 class="accent" style="font-size:40px">${winner === myTeam ? "내팀" : "상대팀"} 승리!</h2>
       <table class="summary-table">
-        <tr><th>${TEAM_NAME[0]}</th><th>${TEAM_NAME[1]}</th></tr>
-        <tr><td>${state.teamScores[0]}</td><td>${state.teamScores[1]}</td></tr>
+        <tr><th>내팀</th><th>상대팀</th></tr>
+        <tr><td>${state.teamScores[myTeam]}</td><td>${state.teamScores[oppTeam]}</td></tr>
       </table>
       <div class="status-line">새로고침하면 처음 화면으로 돌아가요</div>
     </div>
