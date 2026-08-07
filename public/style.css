@@ -143,8 +143,7 @@ input[type=text] {
   0%, 100% { box-shadow: 0 0 0 2px rgba(201,162,75,.35), 0 0 14px rgba(201,162,75,.5); }
   50% { box-shadow: 0 0 0 5px rgba(201,162,75,.45), 0 0 26px rgba(201,162,75,.85); }
 }
-.seat-box .role { font-family: 'Noto Serif KR'; font-weight: 700; color: var(--ivory); font-size: 13px; }
-.seat-box.turn .role, .seat-box.turn .nick { color: var(--gold-soft); }
+.seat-box.turn .nick { color: var(--gold-soft); }
 .seat-box .nick { font-size: 12px; font-weight: 700; color: var(--ivory); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .seat-box .count { font-size: 9px; color: var(--gold-soft); }
 .seat-box .badge { font-size: 8px; padding: 1px 5px; border-radius: 8px; background: var(--jade); color: #06231a; }
@@ -329,6 +328,5 @@ input[type=text] {
 @media (max-width: 380px) {
   .card { width: 44px; height: 66px; }
   .card.small { width: 30px; height: 44px; }
-  .seat-box .role { font-size: 12px; }
   .scoreboard .team { font-size: 10px; padding: 3px 6px; }
 }

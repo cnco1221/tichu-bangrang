@@ -809,7 +809,8 @@ class Room {
 
   /* ---------------- 규칙 기반 봇 ---------------- */
 
-  // 파트너에게는 항상 최고패(용>봉황>A>K>...), 상대에게는 낮은 패를 자동으로 고름
+  // 파트너에게는 항상 최고패(용>봉황>A>K>...)를 줌.
+  // 상대에게는 단순히 숫자가 낮은 패가 아니라, 내 손패 안에서 쓸모없는 패(페어/스트레이트로 이어지지 않는 외톨이 패)를 우선해서 줌
   // (봇 교환 및 교환 타임아웃 자동제출 둘 다 여기서 공유)
   _autoExchangePicks(seat) {
     const hand = this.hands[seat];
@@ -823,7 +824,18 @@ class Room {
     const byHighest = hand.slice().sort((a, b) => giveRank(b) - giveRank(a));
     const partnerCard = byHighest[0];
     const rest = hand.filter((c) => c.id !== partnerCard.id);
-    const restLowFirst = rest.slice().sort((a, b) => giveRank(a) - giveRank(b));
+
+    // 낮을수록 "줘도 되는" 패: 랭크가 낮을수록 기본적으로 내주기 좋지만,
+    // 같은 랭크가 더 있어 페어/트리플/포카드로 쓸 수 있거나 연속된 랭크가 있어 스트레이트로 이어질 수 있으면 남겨두는 게 유리하므로 가중치를 더함
+    const keepValue = (c) => {
+      const sameRankCount = rest.filter((x) => !x.special && x.rank === c.rank).length;
+      const hasNeighbor = rest.some((x) => !x.special && (x.rank === c.rank - 1 || x.rank === c.rank + 1));
+      let v = c.rank;
+      if (sameRankCount >= 2) v += 40;
+      if (hasNeighbor) v += 15;
+      return v;
+    };
+    const restLowFirst = rest.slice().sort((a, b) => keepValue(a) - keepValue(b));
     const nonSpecialRest = restLowFirst.filter((c) => !c.special);
     const pickForOpponents = (nonSpecialRest.length >= 2 ? nonSpecialRest : restLowFirst).slice(0, 2);
     return { left: pickForOpponents[0].id, across: partnerCard.id, right: pickForOpponents[1].id };

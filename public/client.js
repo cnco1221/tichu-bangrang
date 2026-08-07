@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.29"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.30"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -822,11 +822,11 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
       <div class="board-area">
         ${playLogHTML()}
         <div class="compass">
-          ${seatBoxHTML(topSeat, "seat-north", "아군")}
-          ${seatBoxHTML(leftSeat, "seat-west", "상대")}
+          ${seatBoxHTML(topSeat, "seat-north")}
+          ${seatBoxHTML(leftSeat, "seat-west")}
           <div class="seat-center trick-area">${centerHtml}</div>
-          ${seatBoxHTML(rightSeat, "seat-east", "상대")}
-          ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
+          ${seatBoxHTML(rightSeat, "seat-east")}
+          ${seatBoxHTML(viewerSeat, "seat-south")}
         </div>
         ${showTimer ? `<div class="turn-timer-corner" id="turnTimerChip">차례</div>` : ""}
       </div>
@@ -869,7 +869,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
 /* ---------------- Play (나침반 UI) ---------------- */
 function seatLabel(seat) { const p = state.players[seat]; return p ? p.name : `좌석${seat + 1}`; }
 
-function seatBoxHTML(seat, posClass, role) {
+function seatBoxHTML(seat, posClass) {
   const isTurn = state.turnSeat === seat && state.pendingDragonChoice === null;
   const tichu = state.tichuCalled[seat];
   const badge = tichu === "large" ? `<span class="badge tichu-large">라지티츄</span>` : tichu === "small" ? `<span class="badge tichu-small">스몰티츄</span>` : "";
@@ -881,7 +881,6 @@ function seatBoxHTML(seat, posClass, role) {
   const hasPassed = state.currentTrick && state.currentTrick.passedSeats && state.currentTrick.passedSeats.includes(seat) && state.turnSeat !== seat;
   return `<div class="seat-box ${posClass} ${isTurn ? "turn" : ""} ${connected === false ? "disconnected" : ""}" data-seat="${seat}">
     ${abandonCount > 0 ? `<div class="abandon-tag">잠수 ${abandonCount}/3</div>` : ""}
-    <div class="role">${role}</div>
     <div class="nick">${seatLabel(seat)}${finished}</div>
     ${hasPassed ? `<div class="pass-tag">패스</div>` : ""}
     <div class="count">${count}장</div>
