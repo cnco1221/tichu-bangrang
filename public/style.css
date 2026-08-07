@@ -136,7 +136,8 @@ input[type=text] {
 }
 .seat-box.turn {
   border-color: var(--gold); border-width: 2px;
-  background: rgba(201,162,75,.16);
+  /* 불투명한 배경으로 해야 중앙 보드가 셀 밖으로 부풀어 겹칠 때 뒤가 비쳐서 반투명해 보이지 않음 */
+  background: linear-gradient(180deg, #fff8e6, #ffedc0);
   animation: seatTurnPulse 1.3s ease-in-out infinite;
 }
 @keyframes seatTurnPulse {
@@ -191,6 +192,8 @@ input[type=text] {
 .mini-combo.long-combo .card .center-icon { font-size: 11px; }
 .mini-combo.long-combo .card .center-icon img { width: 18px; height: 18px; }
 .mini-combo.long-combo .card.special-sparrow .corner-tl, .mini-combo.long-combo .card.special-sparrow .corner-br { font-size: 7px; }
+/* 7장 이상 내면 한 줄에 다 안 들어가고 두 줄로 접히도록 폭을 제한(카드 4장 폭) */
+.mini-combo.wrap-combo { max-width: 122px; }
 .mini-combo.play-anim { animation-duration: .8s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
 .mini-combo.play-anim.from-north { animation-name: playFromNorth; }
 .mini-combo.play-anim.from-south { animation-name: playFromSouth; }
@@ -245,6 +248,8 @@ input[type=text] {
 .hand-wrap { border-top: 1px solid var(--panel-line); background: rgba(0,0,0,.2); padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 3px; width: 100%; max-width: 100vw; overflow: hidden; box-sizing: border-box; }
 .hand-actions { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
 .hand-actions button { font-size: 11px; padding: 6px 10px; }
+/* 내기 버튼을 오른쪽 끝으로 고정해서 패스 버튼과 항상 거리를 두고, 잘못 눌리는 일을 줄임 */
+.play-btn-pinned { margin-left: auto; }
 /* height를 고정(가변 max-height가 아님)해서 손패 줄 수가 바뀌어도 게임보드(위쪽 컴퍼스 영역) 크기가 흔들리지 않게 함 */
 .hand-cards {
   display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start;

@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.35"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.37"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -41,7 +41,18 @@ function fetchMyStats(rerender) {
 }
 let myRoom = localStorage.getItem("tichu_room") || "";
 let mySeat = null;
-let isSpectator = false;
+let isSpectator = localStorage.getItem("tichu_spectator") === "1";
+
+// 방 코드/관전 여부를 저장해둬서 새로고침·재접속해도 진행 중이던 게임에 자동으로 다시 들어갈 수 있게 함
+function setStoredRoom(room, spectator) {
+  if (room) {
+    localStorage.setItem("tichu_room", room);
+    localStorage.setItem("tichu_spectator", spectator ? "1" : "0");
+  } else {
+    localStorage.removeItem("tichu_room");
+    localStorage.removeItem("tichu_spectator");
+  }
+}
 let state = null;
 let selected = new Set();
 let exchangeStage = { left: null, across: null, right: null };
@@ -68,7 +79,7 @@ function leaveCurrentRoom() {
     myRoom = null;
     state = null;
     document.body.classList.remove("tichu-large-bg", "tichu-small-bg"); // 방 나갈 때 티츄 배경색 원상복구
-    localStorage.removeItem("tichu_room");
+    setStoredRoom(null);
     render();
   });
 }
@@ -208,7 +219,10 @@ function renderLanding() {
             <div class="my-info-row"><span class="label">닉네임</span><span class="value">${escapeHtml(loggedInAs)}</span></div>
             <div class="my-info-row"><span class="label">승 / 패</span><span class="value">${myStats ? `${myStats.wins} / ${myStats.losses}` : "-"}</span></div>
             <div class="my-info-row"><span class="label">랭킹</span><span class="value">${myStats ? myStats.rank : "-"}</span></div>
-            <button class="small ghost" id="logoutBtn" style="margin-top:2px;">로그아웃</button>
+            <div class="hand-actions" style="margin-top:2px;">
+              <button class="small ghost" id="changePwBtn">비밀번호 변경</button>
+              <button class="small ghost" id="logoutBtn">로그아웃</button>
+            </div>
           </div>
           <button class="primary" id="createBtn">새 방 만들기</button>`
         : `<div class="my-info-box">
@@ -226,10 +240,10 @@ function renderLanding() {
         <div class="room-list">
           ${openRooms.length
             ? openRooms.map((r) => `<div class="room-list-row">
-                <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}</div>
+                <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}${r.phase !== "lobby" ? " · 게임중" : ""}</div>
                 <div class="room-list-btns">
-                  <button class="small primary" data-join="${r.code}" ${loggedInAs ? "" : "disabled"}>입장</button>
-                  <button class="small ghost" data-spectate="${r.code}">관전 입장</button>
+                  ${r.phase === "lobby" ? `<button class="small primary" data-join="${r.code}" ${loggedInAs ? "" : "disabled"}>입장</button>` : ""}
+                  <button class="small ghost" data-spectate="${r.code}" ${loggedInAs ? "" : "disabled"}>관전 입장</button>
                 </div>
               </div>`).join("")
             : `<div class="hint">참가 가능한 방이 없어요</div>`}
@@ -254,19 +268,22 @@ function renderLanding() {
   if (openSignupBtn) openSignupBtn.onclick = () => openSignupModal();
   const logoutBtn = document.getElementById("logoutBtn");
   if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; myStats = null; setStoredSession(null, null); render(); };
+  const changePwBtn = document.getElementById("changePwBtn");
+  if (changePwBtn) changePwBtn.onclick = () => openChangePasswordModal();
   const createBtn = document.getElementById("createBtn");
   if (createBtn) createBtn.onclick = () => {
     socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = false;
-      localStorage.setItem("tichu_room", myRoom);
+      setStoredRoom(myRoom, isSpectator);
     });
   };
   const doJoin = (asSpectator, code) => {
+    if (asSpectator && !loggedInAs) return showToast("관전하려면 로그인이 필요해요");
     socket.emit("joinRoom", { code, name: loggedInAs || "관전자", asSpectator, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = !!res.spectator;
-      localStorage.setItem("tichu_room", myRoom);
+      setStoredRoom(myRoom, isSpectator);
     });
   };
   document.getElementById("refreshRoomsBtn").onclick = () => fetchRoomList(true);
@@ -344,6 +361,37 @@ function openSignupModal() {
       backdrop.remove();
     });
   };
+}
+
+function openChangePasswordModal() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:280px;">
+      <h3 class="accent" style="font-size:22px">비밀번호 변경</h3>
+      <input type="password" id="pwOld" placeholder="현재 비밀번호" />
+      <input type="password" id="pwNew" placeholder="새 비밀번호" />
+      <input type="password" id="pwNew2" placeholder="새 비밀번호 확인" />
+      <div class="hand-actions">
+        <button class="primary" id="pwSubmitBtn">변경</button>
+        <button class="ghost" id="pwCancelBtn">취소</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.getElementById("pwCancelBtn").onclick = () => backdrop.remove();
+  const submit = () => {
+    const oldPassword = document.getElementById("pwOld").value;
+    const newPassword = document.getElementById("pwNew").value;
+    const newPassword2 = document.getElementById("pwNew2").value;
+    if (newPassword !== newPassword2) return showToast("새 비밀번호가 서로 달라요");
+    socket.emit("changePassword", { oldPassword, newPassword }, (res) => {
+      if (res.error) return showToast(res.error);
+      showToast("비밀번호가 변경됐어요");
+      backdrop.remove();
+    });
+  };
+  document.getElementById("pwSubmitBtn").onclick = submit;
+  document.getElementById("pwNew2").onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
 /* ---------------- 관리자모드 ---------------- */
@@ -740,12 +788,12 @@ function renderLobby() {
   if (addBotBtn) addBotBtn.onclick = () => socket.emit("addBot", null, (res) => { if (res && res.error) showToast(res.error); });
   const takeSeatBtn = document.getElementById("takeSeatBtn");
   if (takeSeatBtn) takeSeatBtn.onclick = () => socket.emit("takeSeat", null, (res) => {
-    if (res && res.ok) { mySeat = res.seat; isSpectator = false; render(); }
+    if (res && res.ok) { mySeat = res.seat; isSpectator = false; setStoredRoom(myRoom, isSpectator); render(); }
     else showToast("빈 자리가 없어요");
   });
   const toSpectatorBtn = document.getElementById("toSpectatorBtn");
   if (toSpectatorBtn) toSpectatorBtn.onclick = () => socket.emit("switchToSpectator", null, (res) => {
-    if (res && res.ok) { isSpectator = true; mySeat = null; render(); }
+    if (res && res.ok) { isSpectator = true; mySeat = null; setStoredRoom(myRoom, isSpectator); render(); }
     else if (res && res.error) showToast(res.error);
   });
   const fixedSeatBtn = document.getElementById("fixedSeatBtn");
@@ -1092,7 +1140,9 @@ function renderPlay() {
     animatedPlayKey = playKey;
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
-  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length >= 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
+  const longComboCls = lastPlay && lastPlay.combo.cards.length >= 6 ? "long-combo" : "";
+  const wrapComboCls = lastPlay && lastPlay.combo.cards.length >= 7 ? "wrap-combo" : "";
+  const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${longComboCls} ${wrapComboCls}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
   const comboTypeText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = (state.requestedRank && !state.requestSatisfied)
     ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
@@ -1100,8 +1150,12 @@ function renderPlay() {
   const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
+  // 사분면 색은 마지막으로 낸 사람이 아니라 지금 차례인 사람 쪽을 가리킴
+  const turnDir = state.pendingDragonChoice === null
+    ? (state.turnSeat === topSeat ? "north" : state.turnSeat === rightSeat ? "east" : state.turnSeat === leftSeat ? "west" : state.turnSeat === viewerSeat ? "south" : null)
+    : null;
   const centerHtml = `
-    ${lastPlay ? `<div class="trick-direction dir-${fromClass.replace("from-", "")}"></div>` : ""}
+    ${turnDir ? `<div class="trick-direction dir-${turnDir}"></div>` : ""}
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
@@ -1123,9 +1177,9 @@ function renderPlay() {
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
   const bottomHtml = `
     <div class="hand-actions">
-      <button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}" ${canCallSmall ? "" : "disabled"}>${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
       <button id="passBtn" ${canPass ? "" : "disabled"}>패스</button>
-      <button id="playBtn" class="primary" ${canAttemptPlay ? "" : "disabled"}>내기</button>
+      ${canCallSmall ? `<button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}">${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>` : ""}
+      <button id="playBtn" class="primary play-btn-pinned" ${canAttemptPlay ? "" : "disabled"}>내기</button>
     </div>
     <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
@@ -1349,12 +1403,7 @@ function renderRoundEnd() {
     <div class="modal exchange-modal-compact">
       <h3 class="accent" style="font-size:20px">${state.roundHistory ? state.roundHistory.length : ""}라운드 결과</h3>
       ${s.doubleWin !== null ? `<div class="status-line">${s.doubleWin === myTeam ? "내팀" : "상대팀"} 더블윈! (+200)</div>` : ""}
-      <table class="summary-table">
-        <tr><th></th><th>내팀</th><th>상대팀</th></tr>
-        <tr><td>이번 점수</td><td>${s.teamPoints[myTeam]}</td><td>${s.teamPoints[oppTeam]}</td></tr>
-        <tr><td>티츄점수</td><td>${s.bonuses[myTeam]}</td><td>${s.bonuses[oppTeam]}</td></tr>
-        <tr><td><b>누적</b></td><td><b>${state.teamScores[myTeam]}</b></td><td><b>${state.teamScores[oppTeam]}</b></td></tr>
-      </table>
+      <div class="status-line" style="font-size:16px; font-weight:700; color:var(--ivory);">이번 라운드 : 내팀 ${s.teamPoints[myTeam]}점 · 상대팀 ${s.teamPoints[oppTeam]}점</div>
       <div class="chip" id="roundEndTimerChip" style="margin-top:6px;"></div>
     </div>
   `;
@@ -1566,6 +1615,18 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("button, .card")) playClickSound();
 }, true);
 
+// 채팅창이 열려있을 때 채팅창/채팅 버튼 바깥을 누르면 닫히게 함
+document.addEventListener("click", (e) => {
+  if (chatOpen && !e.target.closest(".chat-panel, #chatFab, .chat-preview, .chat-preview-inline")) {
+    chatOpen = false;
+    render();
+  }
+  if (globalChatOpen && !e.target.closest(".chat-panel, #globalChatFab, .chat-preview")) {
+    globalChatOpen = false;
+    render();
+  }
+});
+
 let lastTrickPlayCount = 0;
 function checkPlaySound(newState) {
   if (newState && newState.currentTrick) {
@@ -1710,6 +1771,23 @@ socket.on("forceLogout", ({ reason }) => {
   render();
 });
 socket.on("connect", () => {
+  // 새로고침으로 처음 접속했을 때도(네트워크 재연결뿐 아니라) 저장해둔 방으로 자동 복귀 시도.
+  // 로그인 복원(loginWithToken)이 끝난 뒤에 시도해야 관전 재입장 시 "로그인 필요" 오류가 안 남
+  const rejoinRoom = () => {
+    if (!myRoom) { render(); return; }
+    socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
+      if (res && res.ok) {
+        if (typeof res.seat === "number") mySeat = res.seat;
+        isSpectator = !!res.spectator;
+        setStoredRoom(myRoom, isSpectator);
+      } else {
+        setStoredRoom(null); // 방이 이미 사라졌거나 재입장할 수 없으면 계속 재시도하지 않게 정리
+        myRoom = "";
+      }
+      render();
+    });
+  };
+
   // "로그인 상태 유지"를 체크했었다면 저장해둔 세션 토큰으로 자동 로그인 시도
   if (!loggedInAs) {
     const sNick = localStorage.getItem("tichu_session_nickname");
@@ -1723,21 +1801,12 @@ socket.on("connect", () => {
         } else {
           setStoredSession(null, null);
         }
+        rejoinRoom();
       });
+      return;
     }
   }
-  // 네트워크가 잠깐 끊겼다가 소켓이 자동 재연결된 경우: 원래 있던 방/좌석으로 자동 복귀 시도
-  if (myRoom && (mySeat !== null || isSpectator)) {
-    socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
-      if (res && res.ok) {
-        if (typeof res.seat === "number") mySeat = res.seat;
-        isSpectator = !!res.spectator;
-      }
-      render();
-    });
-  } else {
-    render();
-  }
+  rejoinRoom();
 });
 socket.on("globalChatMessage", (m) => {
   globalChatMessages.push(m);

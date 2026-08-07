@@ -109,6 +109,24 @@ async function loginWithToken({ nickname, sessionToken }) {
   return { ok: true, nickname: data.nickname };
 }
 
+// 로그인한 본인이 직접 비밀번호 변경(관리자 승인 없이 바로 적용). 현재 비밀번호 확인 필요
+async function changePassword(nickname, oldPassword, newPassword) {
+  const db = initFirebase();
+  if (!db) return { error: "서버에 아직 회원 시스템이 설정되지 않았어요(관리자에게 문의)" };
+  nickname = String(nickname || "").trim().slice(0, 10);
+  if (!nickname) return { error: "로그인이 필요해요" };
+  newPassword = String(newPassword || "");
+  if (newPassword.length < 3) return { error: "새 비밀번호가 너무 짧아요" };
+  const ref = db.collection(MEMBERS).doc(nickname);
+  const snap = await ref.get();
+  if (!snap.exists) return { error: "존재하지 않는 멤버예요" };
+  const data = snap.data();
+  if (!verifyPassword(oldPassword, data.salt, data.passwordHash)) return { error: "현재 비밀번호가 틀렸어요" };
+  const { hash, salt } = hashPassword(newPassword);
+  await ref.set({ passwordHash: hash, salt }, { merge: true });
+  return { ok: true };
+}
+
 /* ---------------- 관리자 ---------------- */
 
 async function adminLogin(password) {
@@ -328,7 +346,7 @@ async function adminDeleteHof(id) {
 }
 
 module.exports = {
-  signup, login, loginWithToken,
+  signup, login, loginWithToken, changePassword,
   adminLogin, adminChangePassword,
   adminListPending, adminApprove, adminReject,
   adminListMembers, adminDeleteMember, adminResetPassword, adminRenameNickname, adminSetRecord,

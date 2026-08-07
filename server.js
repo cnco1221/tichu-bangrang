@@ -105,12 +105,12 @@ function makeRoom(code) {
 
 io.on("connection", (socket) => {
   socket.on("listRooms", (_, cb) => {
+    // 게임이 시작된 방도 목록에 계속 보여서 관전으로 들어갈 수 있게 함(로비 방만 보이던 것 수정)
     const list = [];
     for (const [code, room] of rooms.entries()) {
-      if (room.phase !== "lobby") continue;
       const playerCount = room.players.filter((p) => p).length;
       if (playerCount === 0) continue;
-      list.push({ code, playerCount, spectatorCount: room.spectators.length });
+      list.push({ code, playerCount, spectatorCount: room.spectators.length, phase: room.phase });
     }
     cb && cb({ rooms: list });
   });
@@ -145,6 +145,9 @@ io.on("connection", (socket) => {
     }
 
     const memberNickname = loggedInNickname.get(socket.id) || null;
+    if ((asSpectator || room.isFull()) && !memberNickname) {
+      return cb && cb({ error: "관전하려면 로그인이 필요해요" });
+    }
     const trimmedName = memberNickname || (name || "").slice(0, 10);
     if (asSpectator || room.isFull()) {
       room.addSpectator(socket.id, trimmedName);
@@ -238,6 +241,12 @@ io.on("connection", (socket) => {
     releaseSession(socket.id);
     loggedInNickname.delete(socket.id);
     cb && cb({ ok: true });
+  });
+
+  socket.on("changePassword", async ({ oldPassword, newPassword }, cb) => {
+    const nickname = loggedInNickname.get(socket.id);
+    if (!nickname) return cb && cb({ error: "로그인이 필요해요" });
+    cb && cb(await accounts.changePassword(nickname, oldPassword, newPassword));
   });
 
   socket.on("getRanking", async (_, cb) => {
