@@ -102,19 +102,31 @@ input[type=text] {
 
 /* ---------- Compass Table ---------- */
 .table-wrap { height: 100%; width: 100%; max-width: 100vw; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; padding-top: env(safe-area-inset-top); }
-.topbar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,.15); position: relative; gap: 6px; row-gap: 4px; }
+.topbar { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; padding: 3px 10px; border-bottom: 1px solid var(--panel-line); background: rgba(0,0,0,.15); position: relative; gap: 6px; row-gap: 4px; }
 .scoreboard { display: flex; gap: 8px; font-size: 11px; position: absolute; left: 50%; transform: translateX(-50%); cursor: pointer; }
-.scoreboard .team { padding: 3px 8px; border-radius: 6px; background: var(--panel); white-space: nowrap; }
+.scoreboard .team { padding: 2px 7px; border-radius: 6px; background: var(--panel); white-space: nowrap; }
 .scoreboard .team.a { border-left: 3px solid var(--jade); }
 .scoreboard .team.b { border-left: 3px solid var(--sword); }
 .topbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .topbar-right .chip { font-size: 10px; white-space: nowrap; }
 
-/* 방금 낸 카드 로그: 점수표 줄 바로 아래, 왼쪽 상단. 최대 3줄만 보이고 그 이상은 스크롤 없이 위로 밀려 사라짐 */
-.play-log { display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; max-height: 54px; overflow: hidden; padding: 4px 10px 0; gap: 1px; pointer-events: none; }
-.play-log-line { flex-shrink: 0; font-size: 11px; font-weight: 600; line-height: 17px; color: #1a1208; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* 게임판(나침반) + 오버레이 요소(플레이 로그, 차례 타이머)를 감싸는 영역.
+   compass는 항상 이 영역을 꽉 채우도록 flex:1로 고정해서, 플레이 로그 유무 등으로 보드 크기가 흔들리지 않게 함 */
+.board-area { position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.board-area .compass { flex: 1 1 auto; height: auto; }
 
-.compass { position: relative; display: grid; grid-template-columns: 0.7fr 2.6fr 0.7fr; grid-template-rows: 0.9fr 1.8fr 0.9fr; height: 100%; width: 100%; max-width: 100%; padding: 6px 6px; gap: 8px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
+/* 방금 낸 카드 로그: 점수표 줄 바로 아래, 왼쪽 상단. 항상 최신 1줄만 표시하고, 보드 레이아웃에 영향을 주지 않도록 오버레이로 띄움 */
+.play-log { position: absolute; top: 2px; left: 8px; z-index: 3; display: flex; flex-direction: column; align-items: flex-start; max-height: 18px; overflow: hidden; padding: 0; gap: 1px; pointer-events: none; }
+.play-log-line { flex-shrink: 0; font-size: 11px; font-weight: 300; line-height: 16px; color: #1a1208; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* 차례 타이머: 보드 아랫줄에 고정 높이로 항상 자리를 예약해서(내용이 없어도) 보드 크기가 흔들리지 않게 함 */
+.turn-timer-strip { flex: 0 0 16px; display: flex; align-items: center; justify-content: center; }
+.turn-timer-strip span {
+  background: linear-gradient(180deg, var(--gold), var(--gold-soft)); color: #1b1305;
+  font-size: 10px; font-weight: 800; padding: 1px 8px; border-radius: 8px; white-space: nowrap;
+}
+
+.compass { position: relative; display: grid; grid-template-columns: 0.7fr 2.6fr 0.7fr; grid-template-rows: 0.9fr 1.8fr 0.9fr; height: 100%; width: 100%; max-width: 100%; padding: 3px; gap: 4px; min-height: 0; min-width: 0; overflow: hidden; box-sizing: border-box; }
 .seat-box {
   border: 1px solid var(--panel-line); border-radius: 8px; background: var(--panel);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px 8px; font-size: 11px; color: var(--ivory-dim); min-width: 0; overflow: visible; position: relative;
@@ -128,12 +140,6 @@ input[type=text] {
 @keyframes seatTurnPulse {
   0%, 100% { box-shadow: 0 0 0 2px rgba(201,162,75,.35), 0 0 14px rgba(201,162,75,.5); }
   50% { box-shadow: 0 0 0 5px rgba(201,162,75,.45), 0 0 26px rgba(201,162,75,.85); }
-}
-.turn-timer-fixed {
-  position: fixed; top: calc(48px + env(safe-area-inset-top)); right: 10px;
-  background: linear-gradient(180deg, var(--gold), var(--gold-soft)); color: #1b1305;
-  font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 9px; white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0,0,0,.35); z-index: 5;
 }
 .seat-box .role { font-family: 'Noto Serif KR'; font-weight: 700; color: var(--ivory); font-size: 13px; }
 .seat-box.turn .role, .seat-box.turn .nick { color: var(--gold-soft); }
@@ -181,6 +187,7 @@ input[type=text] {
 .mini-combo.long-combo .card .rank { font-size: 9px; }
 .mini-combo.long-combo .card .suit { font-size: 10px; }
 .mini-combo.long-combo .card .center-icon { font-size: 11px; }
+.mini-combo.long-combo .card .center-icon img { width: 18px; height: 18px; }
 .mini-combo.long-combo .card.special-sparrow .corner-tl, .mini-combo.long-combo .card.special-sparrow .corner-br { font-size: 7px; }
 .mini-combo.play-anim { animation-duration: .8s; animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: backwards; }
 .mini-combo.play-anim.from-north { animation-name: playFromNorth; }
@@ -192,9 +199,6 @@ input[type=text] {
 @keyframes playFromEast  { from { transform: translateX(80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
 @keyframes playFromWest  { from { transform: translateX(-80px) scale(.8); opacity: 0; } to { transform: translateX(0) scale(1); opacity: 1; } }
 .trick-empty { color: var(--ivory-dim); font-size: 11px; letter-spacing: 1px; }
-.combo-label { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 11px; color: var(--gold-soft); background: rgba(30,43,35,.08); padding: 3px 12px; border-radius: 8px; white-space: nowrap; }
-.combo-label .who { font-weight: 700; font-size: 11px; color: var(--ivory); }
-.combo-label .what { font-size: 10px; color: var(--gold-soft); }
 .requested-tag { position: absolute; top: 6px; right: 8px; background: rgba(30,43,35,.85); color: #f3e0a8; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 10px; white-space: nowrap; }
 
 /* card */
@@ -219,14 +223,14 @@ input[type=text] {
 /* 특수카드 중앙 아이콘 (참새/용/봉황 공통). 아래쪽 글자(용/봉황/개 라벨)와 안 겹치게 살짝 위쪽에 배치 */
 .card .center-icon { position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; pointer-events: none; }
 .card.small .center-icon { font-size: 14px; }
-.card .center-icon img { display: block; width: 32px; height: 32px; object-fit: contain; }
-.card.small .center-icon img { width: 22px; height: 22px; }
+.card .center-icon img { display: block; width: 38px; height: 38px; object-fit: contain; }
+.card.small .center-icon img { width: 26px; height: 26px; }
 
 /* 참새는 아래쪽에 글자 라벨이 없어서(좌상단/우하단 숫자만 있음) 아이콘을 다시 정중앙으로.
    다만 위아래 숫자와 겹치지 않도록 다른 특수카드보다 살짝 작게 유지 */
 .card.special-sparrow .center-icon { top: 50%; }
-.card.special-sparrow .center-icon img { width: 30px; height: 30px; }
-.card.small.special-sparrow .center-icon img { width: 20px; height: 20px; }
+.card.special-sparrow .center-icon img { width: 36px; height: 36px; }
+.card.small.special-sparrow .center-icon img { width: 23px; height: 23px; }
 
 /* 참새 카드 전용: 좌상단/우하단 "1" */
 .card.special-sparrow .corner-tl, .card.special-sparrow .corner-br { position: absolute; font-size: 9px; line-height: 1; font-weight: 700; color: #33506b; }
@@ -234,17 +238,20 @@ input[type=text] {
 .card.special-sparrow .corner-br { bottom: 2px; right: 4px; transform: rotate(180deg); }
 .card.small.special-sparrow .corner-tl, .card.small.special-sparrow .corner-br { font-size: 7px; }
 
-.hand-wrap { border-top: 1px solid var(--panel-line); background: rgba(0,0,0,.2); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 100vw; overflow: hidden; box-sizing: border-box; }
+.hand-wrap { border-top: 1px solid var(--panel-line); background: rgba(0,0,0,.2); padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 3px; width: 100%; max-width: 100vw; overflow: hidden; box-sizing: border-box; }
 .hand-actions { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
-.hand-actions button { font-size: 12px; padding: 8px 12px; }
+.hand-actions button { font-size: 11px; padding: 6px 10px; }
+/* height를 고정(가변 max-height가 아님)해서 손패 줄 수가 바뀌어도 게임보드(위쪽 컴퍼스 영역) 크기가 흔들리지 않게 함 */
 .hand-cards {
   display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start;
-  gap: 3px; max-height: 148px; overflow-y: auto; overflow-x: hidden; padding: 16px 2px 6px;
+  gap: 3px; height: 144px; overflow-y: auto; overflow-x: hidden; padding: 16px 2px 6px;
 }
 .hand-cards .card { cursor: pointer; transition: transform .12s ease; width: 40px; height: 58px; padding: 3px 4px; }
 .hand-cards .card .rank { font-size: 11px; }
 .hand-cards .card .suit { font-size: 12px; }
+.hand-cards .card .center-icon img { width: 34px; height: 34px; }
 .hand-cards .card.special-sparrow .center-icon { font-size: 15px; }
+.hand-cards .card.special-sparrow .center-icon img { width: 32px; height: 32px; }
 .hand-cards .card.special-sparrow .corner-tl, .hand-cards .card.special-sparrow .corner-br { font-size: 8px; }
 .hand-cards .card:hover { transform: translateY(-6px); }
 .hand-cards .card.selected { transform: translateY(-10px); }
@@ -259,6 +266,9 @@ input[type=text] {
 .floating-panel-wrap .modal { pointer-events: auto; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
 .modal { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 18px; max-width: 460px; width: min(92vw, 460px); display: flex; flex-direction: column; gap: 14px; max-height: 80vh; overflow-y: auto; }
 .modal.exchange-modal-compact { max-width: 280px; width: min(78vw, 280px); padding: 12px; gap: 8px; }
+.modal.dragon-modal { max-width: 250px; width: min(70vw, 250px); padding: 10px; gap: 8px; text-align: center; }
+.modal.dragon-modal h3 { font-size: 15px; }
+.modal.dragon-modal .hand-actions button { font-size: 10px; padding: 5px 8px; }
 .modal h3 { color: var(--gold-soft); }
 .remember-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ivory-dim); cursor: pointer; user-select: none; }
 .remember-row input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--gold-soft); cursor: pointer; }

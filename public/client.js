@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.27"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.28"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -803,30 +803,36 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
   const leftSeat = (viewerSeat + 3) % 4;
   const cancelVotes = state.cancelVotes || [];
   const iVoted = mySeat !== null && cancelVotes.includes(mySeat);
+  const myTeam = (!isSpectator && mySeat !== null) ? TEAM_OF_SEAT[mySeat] : 0;
+  const myScore = state.teamScores[myTeam];
+  const oppScore = state.teamScores[1 - myTeam];
+  const showTimer = state.phase === "play" && state.turnSeat !== null && state.pendingDragonChoice === null;
 
   app.innerHTML = `
     <div class="table-wrap">
       <div class="topbar">
         <div class="scoreboard" id="scoreboardBtn">
-          <div class="team a">팀A ${state.teamScores[0]}</div>
-          <div class="team b">팀B ${state.teamScores[1]}</div>
+          <div class="team a">내팀 ${myScore}</div>
+          <div class="team b">상대팀 ${oppScore}</div>
         </div>
         <div class="topbar-right">
           <button class="icon-btn" id="menuBtn">⋮</button>
         </div>
       </div>
-      ${state.phase === "play" && state.turnSeat !== null && state.pendingDragonChoice === null ? `<div class="turn-timer-fixed" id="turnTimerChip">차례</div>` : ""}
-      ${playLogHTML()}
+      <div class="board-area">
+        ${playLogHTML()}
+        <div class="compass">
+          ${seatBoxHTML(topSeat, "seat-north", "아군")}
+          ${seatBoxHTML(leftSeat, "seat-west", "상대")}
+          <div class="seat-center trick-area">${centerHtml}</div>
+          ${seatBoxHTML(rightSeat, "seat-east", "상대")}
+          ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
+        </div>
+        <div class="turn-timer-strip">${showTimer ? `<span id="turnTimerChip">차례</span>` : ""}</div>
+      </div>
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
         ${!iVoted && !isSpectator ? `<button class="small danger" id="voteCancelBtn">나도 취소 동의</button>` : ""}
       </div>` : ""}
-      <div class="compass">
-        ${seatBoxHTML(topSeat, "seat-north", "아군")}
-        ${seatBoxHTML(leftSeat, "seat-west", "상대")}
-        <div class="seat-center trick-area">${centerHtml}</div>
-        ${seatBoxHTML(rightSeat, "seat-east", "상대")}
-        ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
-      </div>
       <div class="hand-wrap">
         ${statusLine ? `<div class="status-line">${statusLine}</div>` : ""}
         ${bottomHtml}
@@ -908,7 +914,7 @@ function formatPhoenixValue(power) {
 
 function playLogHTML() {
   if (playLogEntries.length === 0) return "";
-  const lines = playLogEntries.slice(-10).map((e) => `<div class="play-log-line">${e.text}</div>`).join("");
+  const lines = playLogEntries.slice(-1).map((e) => `<div class="play-log-line">${e.text}</div>`).join("");
   return `<div class="play-log">${lines}</div>`;
 }
 
@@ -952,7 +958,6 @@ function renderPlay() {
     fromClass = lastPlay.seat === topSeat ? "from-north" : lastPlay.seat === rightSeat ? "from-east" : lastPlay.seat === leftSeat ? "from-west" : "from-south";
   }
   const plays = lastPlay ? `<div class="mini-combo ${isNewPlay ? "play-anim " + fromClass : ""} ${lastPlay.combo.cards.length >= 6 ? "long-combo" : ""}">${lastPlay.combo.cards.map((c) => cardHTML(c, { small: true })).join("")}</div>` : "";
-  const comboLabelText = lastPlay ? comboLabel(lastPlay.combo) : "";
   const requestedTag = (state.requestedRank && !state.requestSatisfied)
     ? `<div class="requested-tag">콜 : ${RANK_LABEL[state.requestedRank]}</div>`
     : "";
@@ -964,7 +969,6 @@ function renderPlay() {
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
-    ${lastPlay ? `<div class="combo-label"><div class="who">${seatLabel(lastPlay.seat)}</div><div class="what">${comboLabelText}</div></div>` : ""}
   `;
 
   const myHand = state.myHand || [];
@@ -1118,9 +1122,8 @@ function openDragonModal() {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
-    <div class="modal">
-      <h3 class="accent" style="font-size:26px">용(龍)이 이겼습니다</h3>
-      <div class="status-line">이 트릭의 카드를 상대팀 누구에게 줄까요?</div>
+    <div class="modal dragon-modal">
+      <h3 class="accent">용을 누구에게 주시겠습니까?</h3>
       <div class="hand-actions">${orderedOpponents.map((s) => `<button data-s="${s}">${labelFor(s)}</button>`).join("")}</div>
     </div>`;
   document.body.appendChild(backdrop);
@@ -1317,7 +1320,7 @@ function playPassSound() {
     o.frequency.setValueAtTime(320, ctx.currentTime);
     o.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.12);
     g.gain.setValueAtTime(0.001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.26, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + 0.01);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
     o.connect(g); g.connect(ctx.destination);
     o.start();
@@ -1398,6 +1401,27 @@ function playLargeTichuSound() {
     });
   } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
 }
+
+function playClickSound() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const ctx = audioCtx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 720;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.06);
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.07);
+  } catch (e) { /* 오디오 미지원 환경은 조용히 무시 */ }
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("button, .card")) playClickSound();
+}, true);
 
 let lastTrickPlayCount = 0;
 function checkPlaySound(newState) {
