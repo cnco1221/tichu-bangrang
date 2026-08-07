@@ -55,6 +55,7 @@ class Room {
     this.finished = [false, false, false, false];
     this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null, passedSeats: [] };
     this.turnSeat = null;
+    this.lastAction = null; // 이전 라운드 마지막 이벤트(패스 등)가 새 라운드까지 안 남게 초기화
     this.pendingDragonChoice = null;
     this.pendingDogTransfer = null; // 개를 낸 뒤 파트너에게 턴 넘기기 전 1초 대기(연출용 잠금)
     this.doubleWin = null;
@@ -486,6 +487,7 @@ class Room {
     this.currentTrick.plays.push({ seat, combo, cards });
     this.currentTrick.passCount = 0;
     this.currentTrick.passedSeats = this.currentTrick.passedSeats.filter((s) => s !== seat); // 다시 냈으니 그 사람의 "패스" 표시는 사라짐
+    this.lastAction = { type: "play", seat }; // 누군가 패스한 뒤에 다른 사람이 카드를 내면, 그 패스 연출(사분면 회색)이 사라지게 함
 
     const wentOut = hand.length === 0;
     if (wentOut && !this.finished[seat]) {

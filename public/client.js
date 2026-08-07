@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.37"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.40"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -1150,16 +1150,18 @@ function renderPlay() {
   const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
+  const seatToDir = (seat) => seat === topSeat ? "north" : seat === rightSeat ? "east" : seat === leftSeat ? "west" : seat === viewerSeat ? "south" : null;
   // 사분면 색은 마지막으로 낸 사람이 아니라 지금 차례인 사람 쪽을 가리킴
-  const turnDir = state.pendingDragonChoice === null
-    ? (state.turnSeat === topSeat ? "north" : state.turnSeat === rightSeat ? "east" : state.turnSeat === leftSeat ? "west" : state.turnSeat === viewerSeat ? "south" : null)
-    : null;
+  const turnDir = state.pendingDragonChoice === null ? seatToDir(state.turnSeat) : null;
+  // 방금 패스한 사람 쪽은 회색으로. 그 뒤에 다른 사람이 카드를 내면(lastAction이 pass가 아니게 되면) 사라짐
+  const passDir = (state.lastAction && state.lastAction.type === "pass") ? seatToDir(state.lastAction.seat) : null;
   const centerHtml = `
-    ${turnDir ? `<div class="trick-direction dir-${turnDir}"></div>` : ""}
+    ${turnDir ? `<div class="trick-direction dir-${turnDir} turn-color"></div>` : ""}
+    ${passDir ? `<div class="trick-direction dir-${passDir} passed-color"></div>` : ""}
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
-    ${comboTypeText ? `<div class="combo-type-label">${comboTypeText}</div>` : ""}
+    ${comboTypeText ? `<div class="combo-type-label"><div class="what">${comboTypeText}</div><div class="who">${seatLabel(lastPlay.seat)}</div></div>` : ""}
   `;
 
   const myHand = state.myHand || [];
@@ -1177,9 +1179,9 @@ function renderPlay() {
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
   const bottomHtml = `
     <div class="hand-actions">
-      <button id="passBtn" ${canPass ? "" : "disabled"}>패스</button>
       ${canCallSmall ? `<button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}">${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>` : ""}
-      <button id="playBtn" class="primary play-btn-pinned" ${canAttemptPlay ? "" : "disabled"}>내기</button>
+      <button id="passBtn" class="big-action-btn" ${canPass ? "" : "disabled"}>패스</button>
+      <button id="playBtn" class="primary big-action-btn play-btn-pinned" ${canAttemptPlay ? "" : "disabled"}>내기</button>
     </div>
     <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
