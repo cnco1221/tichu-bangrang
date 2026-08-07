@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.28"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.29"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -828,7 +828,7 @@ function renderGameFrame({ centerHtml, bottomHtml, statusLine = "" }) {
           ${seatBoxHTML(rightSeat, "seat-east", "상대")}
           ${seatBoxHTML(viewerSeat, "seat-south", isSpectator ? "관전" : "나")}
         </div>
-        <div class="turn-timer-strip">${showTimer ? `<span id="turnTimerChip">차례</span>` : ""}</div>
+        ${showTimer ? `<div class="turn-timer-corner" id="turnTimerChip">차례</div>` : ""}
       </div>
       ${cancelVotes.length > 0 ? `<div class="cancel-bar">게임 취소 투표 ${cancelVotes.length}/4
         ${!iVoted && !isSpectator ? `<button class="small danger" id="voteCancelBtn">나도 취소 동의</button>` : ""}
@@ -1224,15 +1224,17 @@ function renderRoundEnd() {
 
 function openRoundHistoryModal() {
   const history = state.roundHistory || [];
+  const myTeam = (!isSpectator && mySeat !== null) ? TEAM_OF_SEAT[mySeat] : 0;
+  const oppTeam = 1 - myTeam;
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   backdrop.innerHTML = `
     <div class="modal" style="max-width:280px;">
       <h3 class="accent" style="font-size:22px">라운드별 점수</h3>
       <table class="summary-table">
-        <tr><th>라운드</th><th>${TEAM_NAME[0]}</th><th>${TEAM_NAME[1]}</th></tr>
+        <tr><th>라운드</th><th>내팀</th><th>상대팀</th></tr>
         ${history.length
-          ? history.map((h) => `<tr><td>${h.round}</td><td>${h.teamPoints[0]}</td><td>${h.teamPoints[1]}</td></tr>`).join("")
+          ? history.map((h) => `<tr><td>${h.round}</td><td>${h.teamPoints[myTeam]}</td><td>${h.teamPoints[oppTeam]}</td></tr>`).join("")
           : `<tr><td colspan="3">아직 끝난 라운드가 없어요</td></tr>`}
       </table>
       <button id="closeHistory" class="ghost">닫기</button>
