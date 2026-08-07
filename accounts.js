@@ -4,8 +4,17 @@ const { initFirebase } = require("./firebase");
 const MEMBERS = "members";
 const ADMIN_CONFIG_DOC = "adminConfig/main";
 const SEASON_CONFIG_DOC = "seasonConfig/main";
+const HALL_OF_FAME = "hallOfFame";
 const INITIAL_ADMIN_PASSWORD = "159";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function todayDateStr() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 function hashPassword(password, salt) {
   salt = salt || crypto.randomBytes(16).toString("hex");
@@ -204,6 +213,25 @@ async function adminSetRecord(nickname, wins, losses) {
 
 /* ---------------- 랭킹 시즌 ---------------- */
 
+// 시즌 종료일이 지났는데 아직 명예의 전당에 기록이 안 됐으면, 그 시즌의 현재 랭킹 1등을 자동으로 등록한다.
+// (별도 스케줄러 없이, 시즌 정보를 조회할 때마다 지연 평가로 체크함 - 랭킹창을 열 때마다 호출되므로 충분함)
+async function _maybeRecordSeasonEnd(db, season) {
+  if (!season.name || !season.startDate || !season.endDate) return;
+  if (todayDateStr() <= season.endDate) return; // 아직 시즌 진행 중
+  const seasonKey = `${season.startDate}_${season.endDate}_${season.name}`;
+  const existing = await db.collection(HALL_OF_FAME).where("seasonKey", "==", seasonKey).limit(1).get();
+  if (!existing.empty) return; // 이미 기록됨
+  const { ranked } = await getRanking();
+  if (!ranked.length) return; // 이 시즌에 등급전 기록이 없으면 올릴 사람이 없음
+  const champion = ranked[0];
+  await db.collection(HALL_OF_FAME).add({
+    seasonName: season.name,
+    nickname: champion.nickname,
+    seasonKey,
+    addedAt: Date.now(),
+  });
+}
+
 // 시즌 시작일/종료일은 "YYYY-MM-DD" 형태의 날짜 문자열로만 저장한다(항상 00시 00분 기준으로 적용됨)
 async function getSeason() {
   const db = initFirebase();
@@ -211,7 +239,9 @@ async function getSeason() {
   const snap = await db.doc(SEASON_CONFIG_DOC).get();
   if (!snap.exists) return { name: null, startDate: null, endDate: null };
   const d = snap.data();
-  return { name: d.name || null, startDate: d.startDate || null, endDate: d.endDate || null };
+  const season = { name: d.name || null, startDate: d.startDate || null, endDate: d.endDate || null };
+  await _maybeRecordSeasonEnd(db, season);
+  return season;
 }
 
 async function adminSetSeason(name, startDate, endDate) {
@@ -229,6 +259,8 @@ async function adminSetSeason(name, startDate, endDate) {
 
 /* ---------------- 랭킹 ---------------- */
 
+// 랭킹 표는 시즌 승/패(seasonWins/seasonLosses, "시즌초기화"로 리셋됨)를 기준으로 하고,
+// "내 정보"에 쓰이는 평생 누적 승/패(wins/losses)는 별도로 함께 내려줌
 async function getRanking() {
   const db = initFirebase();
   if (!db) return { ranked: [], unranked: [] };
@@ -237,12 +269,13 @@ async function getRanking() {
   const unranked = [];
   snap.forEach((d) => {
     const v = d.data();
-    const wins = v.wins || 0, losses = v.losses || 0;
+    const wins = v.seasonWins || 0, losses = v.seasonLosses || 0;
+    const lifetimeWins = v.wins || 0, lifetimeLosses = v.losses || 0;
     const total = wins + losses;
     if (total === 0) {
-      unranked.push({ nickname: v.nickname });
+      unranked.push({ nickname: v.nickname, lifetimeWins, lifetimeLosses });
     } else {
-      ranked.push({ nickname: v.nickname, wins, losses, score: wins - losses, winRate: wins / total });
+      ranked.push({ nickname: v.nickname, wins, losses, score: wins - losses, winRate: wins / total, lifetimeWins, lifetimeLosses });
     }
   });
   ranked.sort((a, b) => b.score - a.score || b.wins - a.wins);
@@ -253,14 +286,45 @@ async function recordRankedResult(winningNicknames, losingNicknames) {
   const db = initFirebase();
   if (!db) return;
   const { admin } = require("./firebase");
+  const inc = admin.firestore.FieldValue.increment(1);
   const batch = db.batch();
   for (const nickname of winningNicknames) {
-    batch.set(db.collection(MEMBERS).doc(nickname), { wins: admin.firestore.FieldValue.increment(1) }, { merge: true });
+    batch.set(db.collection(MEMBERS).doc(nickname), { wins: inc, seasonWins: inc }, { merge: true });
   }
   for (const nickname of losingNicknames) {
-    batch.set(db.collection(MEMBERS).doc(nickname), { losses: admin.firestore.FieldValue.increment(1) }, { merge: true });
+    batch.set(db.collection(MEMBERS).doc(nickname), { losses: inc, seasonLosses: inc }, { merge: true });
   }
   await batch.commit();
+}
+
+// 시즌초기화: 랭킹에 쓰이는 시즌 승/패만 0으로 되돌림 (평생 누적 승/패, 즉 "내 정보"는 그대로 둠)
+async function adminResetSeasonRankings() {
+  const db = initFirebase();
+  if (!db) return { error: "설정 안 됨" };
+  const snap = await db.collection(MEMBERS).where("approved", "==", true).get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.forEach((d) => { batch.set(d.ref, { seasonWins: 0, seasonLosses: 0 }, { merge: true }); });
+    await batch.commit();
+  }
+  return { ok: true };
+}
+
+/* ---------------- 명예의 전당 ---------------- */
+
+async function getHallOfFame() {
+  const db = initFirebase();
+  if (!db) return [];
+  const snap = await db.collection(HALL_OF_FAME).orderBy("addedAt", "desc").get();
+  return snap.docs.map((d) => ({ id: d.id, seasonName: d.data().seasonName, nickname: d.data().nickname }));
+}
+
+async function adminDeleteHof(id) {
+  const db = initFirebase();
+  if (!db) return { error: "설정 안 됨" };
+  if (!id) return { error: "id가 없어요" };
+  await db.collection(HALL_OF_FAME).doc(id).delete();
+  return { ok: true };
 }
 
 module.exports = {
@@ -268,6 +332,7 @@ module.exports = {
   adminLogin, adminChangePassword,
   adminListPending, adminApprove, adminReject,
   adminListMembers, adminDeleteMember, adminResetPassword, adminRenameNickname, adminSetRecord,
-  getRanking, recordRankedResult,
+  getRanking, recordRankedResult, adminResetSeasonRankings,
   getSeason, adminSetSeason,
+  getHallOfFame, adminDeleteHof,
 };

@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.31"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.32"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -27,11 +27,14 @@ function fetchMyStats(rerender) {
   socket.emit("getRanking", null, (res) => {
     if (!res) return;
     const ranked = res.ranked || [], unranked = res.unranked || [];
+    // "내 정보"의 승/패는 시즌초기화의 영향을 받지 않는 평생 누적 기록(lifetimeWins/lifetimeLosses)을 씀.
+    // 순위(rank)는 시즌 랭킹 기준.
     const idx = ranked.findIndex((r) => r.nickname === loggedInAs);
     if (idx !== -1) {
-      myStats = { nickname: loggedInAs, wins: ranked[idx].wins, losses: ranked[idx].losses, rank: idx + 1 };
+      myStats = { nickname: loggedInAs, wins: ranked[idx].lifetimeWins, losses: ranked[idx].lifetimeLosses, rank: idx + 1 };
     } else {
-      myStats = { nickname: loggedInAs, wins: 0, losses: 0, rank: "X" };
+      const u = unranked.find((r) => r.nickname === loggedInAs);
+      myStats = { nickname: loggedInAs, wins: u ? u.lifetimeWins : 0, losses: u ? u.lifetimeLosses : 0, rank: "X" };
     }
     if (rerender) render();
   });
@@ -517,29 +520,60 @@ function openSeasonLoginModal() {
   document.getElementById("seasonAdminPassword").onkeydown = (e) => { if (e.key === "Enter") submit(); };
 }
 
-function openSeasonSettingsModal() {
-  const backdrop = document.createElement("div");
-  backdrop.className = "modal-backdrop";
+let seasonResetConfirm = false;
+let seasonResetConfirmTimeout = null;
+
+function openSeasonSettingsModal(activeTab) {
+  activeTab = activeTab || "settings";
+  let backdrop = document.querySelector(".modal-backdrop.season-panel");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop season-panel";
+    document.body.appendChild(backdrop);
+  }
+  const tabs = [
+    { id: "settings", label: "시즌 설정" },
+    { id: "hof", label: "명예의 전당 관리" },
+  ];
   backdrop.innerHTML = `
-    <div class="modal" style="max-width:280px;">
+    <div class="modal" style="max-width:300px;">
       <h3 class="accent" style="font-size:22px">시즌 설정</h3>
-      <div class="status-line">불러오는 중...</div>
+      <div class="admin-tabs">${tabs.map((t) => `<button class="small ${activeTab === t.id ? "primary" : "ghost"}" data-stab="${t.id}">${t.label}</button>`).join("")}</div>
+      <div id="seasonTabContent"><div class="status-line">불러오는 중...</div></div>
+      <button class="ghost" id="seasonCloseBtn">닫기</button>
     </div>`;
-  document.body.appendChild(backdrop);
+  backdrop.querySelectorAll("[data-stab]").forEach((b) => b.onclick = () => openSeasonSettingsModal(b.dataset.stab));
+  document.getElementById("seasonCloseBtn").onclick = () => backdrop.remove();
+
+  const content = document.getElementById("seasonTabContent");
+  if (activeTab === "hof") {
+    socket.emit("getHallOfFame", null, (res) => {
+      const hof = (res && res.hof) || [];
+      content.innerHTML = hof.length
+        ? hof.map((h) => `
+            <div class="admin-row">
+              <div>${escapeHtml(h.seasonName)} - ${escapeHtml(h.nickname)}</div>
+              <button class="small danger" data-delhof="${h.id}">삭제</button>
+            </div>`).join("")
+        : `<div class="status-line">아직 명예의 전당에 오른 사람이 없어요</div>`;
+      content.querySelectorAll("[data-delhof]").forEach((b) => b.onclick = () => {
+        socket.emit("adminDeleteHof", { id: b.dataset.delhof }, (r) => {
+          if (r.error) showToast(r.error); else openSeasonSettingsModal("hof");
+        });
+      });
+    });
+    return;
+  }
+
   socket.emit("getSeason", null, (res) => {
-    const modal = backdrop.querySelector(".modal");
-    if (!modal) return; // 불러오는 사이 창이 닫혔을 수 있음
-    modal.innerHTML = `
-      <h3 class="accent" style="font-size:22px">시즌 설정</h3>
+    if (!document.getElementById("seasonTabContent")) return; // 불러오는 사이 창이 닫혔을 수 있음
+    content.innerHTML = `
       <input type="text" id="seasonNameInput" placeholder="시즌 이름 (예: 2026 시즌 1)" maxlength="30" value="${escapeHtml((res && res.name) || "")}" />
       <div class="my-info-row"><span class="label">시작일</span><input type="date" id="seasonStartInput" value="${(res && res.startDate) || ""}" /></div>
       <div class="my-info-row"><span class="label">종료일</span><input type="date" id="seasonEndInput" value="${(res && res.endDate) || ""}" /></div>
-      <div class="hint">시작일 00시 00분 ~ 종료일 00시 00분 기준으로 적용돼요</div>
-      <div class="hand-actions">
-        <button class="primary" id="seasonSaveBtn">저장</button>
-        <button class="ghost" id="seasonCancelBtn">닫기</button>
-      </div>`;
-    document.getElementById("seasonCancelBtn").onclick = () => backdrop.remove();
+      <div class="hint">시작일 00시 00분 ~ 종료일 00시 00분 기준으로 적용돼요. 종료일이 지나면 그 시즌 랭킹 1등이 자동으로 명예의 전당에 올라가요</div>
+      <button class="primary" id="seasonSaveBtn" style="margin-top:2px;">저장</button>
+      <button class="${seasonResetConfirm ? "danger" : "ghost"}" id="seasonResetBtn" style="margin-top:2px;">${seasonResetConfirm ? "정말요? 다시 눌러서 시즌 초기화" : "시즌 초기화 (모든 유저 랭킹 승/패를 0으로)"}</button>`;
     document.getElementById("seasonSaveBtn").onclick = () => {
       const name = document.getElementById("seasonNameInput").value.trim();
       const startDate = document.getElementById("seasonStartInput").value;
@@ -547,8 +581,31 @@ function openSeasonSettingsModal() {
       socket.emit("adminSetSeason", { name, startDate, endDate }, (r) => {
         if (r.error) return showToast(r.error);
         showToast("시즌 정보가 저장됐어요");
-        backdrop.remove();
       });
+    };
+    const resetBtn = document.getElementById("seasonResetBtn");
+    const paintResetBtn = () => {
+      resetBtn.className = seasonResetConfirm ? "danger" : "ghost";
+      resetBtn.textContent = seasonResetConfirm ? "정말요? 다시 눌러서 시즌 초기화" : "시즌 초기화 (모든 유저 랭킹 승/패를 0으로)";
+    };
+    resetBtn.onclick = () => {
+      clearTimeout(seasonResetConfirmTimeout);
+      if (seasonResetConfirm) {
+        seasonResetConfirm = false;
+        paintResetBtn();
+        socket.emit("adminResetSeasonRankings", null, (r) => {
+          if (r.error) return showToast(r.error);
+          showToast("시즌 랭킹이 초기화됐어요");
+        });
+      } else {
+        seasonResetConfirm = true;
+        paintResetBtn();
+        seasonResetConfirmTimeout = setTimeout(() => {
+          seasonResetConfirm = false;
+          const b = document.getElementById("seasonResetBtn");
+          if (b) { b.className = "ghost"; b.textContent = "시즌 초기화 (모든 유저 랭킹 승/패를 0으로)"; }
+        }, 3000);
+      }
     };
   });
 }
@@ -587,7 +644,12 @@ function openRankingModal(activeTab) {
 
   const content = document.getElementById("rankingTabContent");
   if (activeTab === "hof") {
-    content.innerHTML = `<div class="status-line">시즌제 명예의 전당은 추후 추가될 예정이에요</div>`;
+    socket.emit("getHallOfFame", null, (res) => {
+      const hof = (res && res.hof) || [];
+      content.innerHTML = hof.length
+        ? hof.map((h) => `<div class="admin-row">${escapeHtml(h.seasonName)} - ${escapeHtml(h.nickname)}</div>`).join("")
+        : `<div class="status-line">아직 명예의 전당에 오른 사람이 없어요</div>`;
+    });
     return;
   }
   socket.emit("getRanking", null, (res) => {

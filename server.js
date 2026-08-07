@@ -320,6 +320,20 @@ io.on("connection", (socket) => {
     cb && cb(await accounts.adminSetSeason(name, startDate, endDate));
   });
 
+  socket.on("adminResetSeasonRankings", async (_, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminResetSeasonRankings());
+  });
+
+  socket.on("getHallOfFame", async (_, cb) => {
+    cb && cb({ ok: true, hof: await accounts.getHallOfFame() });
+  });
+
+  socket.on("adminDeleteHof", async ({ id }, cb) => {
+    if (!requireAdmin(cb)) return;
+    cb && cb(await accounts.adminDeleteHof(id));
+  });
+
   socket.on("addBot", (_, cb) => {
     const { room, code } = getRoomCode(socket);
     if (!room) return cb && cb({ error: "방에 먼저 들어가야 해요" });
