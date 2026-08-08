@@ -58,6 +58,7 @@ class Room {
     this.turnSeat = null;
     this.lastAction = null; // 이전 라운드 마지막 이벤트(패스 등)가 새 라운드까지 안 남게 초기화
     this.pendingDragonChoice = null;
+    this.pendingDragonRoundEnd = false; // 용이 낀 트릭이 안 끝났는데 라운드가 끝나버리는 경우, 선택 후 라운드 종료로 이어가야 함을 표시
     this.pendingDogTransfer = null; // 개를 낸 뒤 파트너에게 턴 넘기기 전 1초 대기(연출용 잠금)
     this.doubleWin = null;
     this.requestedRank = null;
@@ -572,7 +573,14 @@ class Room {
     this.wonPiles[recipientSeat].push(...pile);
     this.lastDragonGift = { from: seat, to: recipientSeat };
     this.pendingDragonChoice = null;
-    this._leadNext(seat);
+    this.currentTrick = { plays: [], leaderSeat: null, lastCombo: null, lastSeat: null, passedSeats: [] };
+    if (this.pendingDragonRoundEnd) {
+      // 이 트릭 때문에 라운드가 끝나려던 상황이었으므로, 선택이 끝났으니 이어서 라운드를 종료함
+      this.pendingDragonRoundEnd = false;
+      this._scheduleRoundEnd();
+    } else {
+      this._leadNext(seat);
+    }
     return { ok: true };
   }
 
@@ -611,19 +619,31 @@ class Room {
   }
 
   _afterPlayResult() {
+    let wouldEndRound = false;
     if (this.finishOrder.length === 2) {
       const [a, b] = this.finishOrder;
       if (TEAM_OF_SEAT[a] === TEAM_OF_SEAT[b]) {
         this.doubleWin = TEAM_OF_SEAT[a];
-        this._scheduleRoundEnd();
-        return { ok: true, roundOver: true };
+        wouldEndRound = true;
       }
     }
     if (this.finishOrder.length === 3 && !this.doubleWin) {
-      this._scheduleRoundEnd();
-      return { ok: true, roundOver: true };
+      wouldEndRound = true;
     }
-    return { ok: true };
+    if (!wouldEndRound) return { ok: true };
+
+    // 아직 아무도 패스로 마무리 짓지 못한 트릭이 남아있는 채로 라운드가 끝나려는데, 그 트릭의 최고패가 용이면
+    // 원래 룰대로(용으로 이기면 상대팀 중 누구에게 줄지 반드시 선택) 먼저 물어보고 나서 라운드를 끝내야 함
+    if (this.currentTrick.lastCombo && this.currentTrick.lastCombo.isDragon) {
+      this.pendingDragonChoice = this.currentTrick.lastSeat;
+      this.pendingDragonRoundEnd = true;
+      this._clearTimer();
+      this.turnSeat = null;
+      return { ok: true, needDragonChoice: this.currentTrick.lastSeat, roundOver: true };
+    }
+
+    this._scheduleRoundEnd();
+    return { ok: true, roundOver: true };
   }
 
   // 라운드를 끝낸 마지막 카드가 보드에 잠깐 보이도록, 실제 라운드 종료 처리를 살짝 늦춤
