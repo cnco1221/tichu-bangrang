@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.40"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.41"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -827,8 +827,8 @@ function renderGrand() {
   const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}<div class="chip" id="grandTimerChip" style="margin-top:6px;"></div>`;
   const bottomHtml = isSpectator ? "" : `
     <div class="hand-actions">
-      <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄 콜! (+200/-200)"}</button>
-      <button class="${isPendingSmall ? "danger" : "ghost"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>
+      <button class="${isPendingLarge ? "danger" : "primary"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄"}</button>
+      <button class="${isPendingSmall ? "danger" : "ghost"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요? 다시 눌러서 확정" : "스몰티츄"}</button>
       <button id="grandNo" ${locked ? "disabled" : ""}>패스</button>
     </div>
     <div class="hand-cards">${myHand}</div>
@@ -1150,14 +1150,24 @@ function renderPlay() {
   const dragonGiftTag = (state.lastDragonGift && Date.now() < dragonGiftVisibleUntil)
     ? `<div class="dragon-gift-tag">용 → ${seatLabel(state.lastDragonGift.to)}</div>`
     : "";
-  const seatToDir = (seat) => seat === topSeat ? "north" : seat === rightSeat ? "east" : seat === leftSeat ? "west" : seat === viewerSeat ? "south" : null;
   // 사분면 색은 마지막으로 낸 사람이 아니라 지금 차례인 사람 쪽을 가리킴
-  const turnDir = state.pendingDragonChoice === null ? seatToDir(state.turnSeat) : null;
+  const turnSeatNow = state.pendingDragonChoice === null ? state.turnSeat : null;
   // 방금 패스한 사람 쪽은 회색으로. 그 뒤에 다른 사람이 카드를 내면(lastAction이 pass가 아니게 되면) 사라짐
-  const passDir = (state.lastAction && state.lastAction.type === "pass") ? seatToDir(state.lastAction.seat) : null;
+  const passedSeatNow = (state.lastAction && state.lastAction.type === "pass") ? state.lastAction.seat : null;
+  const quadrants = [
+    { seat: topSeat, dir: "north" },
+    { seat: rightSeat, dir: "east" },
+    { seat: viewerSeat, dir: "south" },
+    { seat: leftSeat, dir: "west" },
+  ].map(({ seat, dir }) => {
+    // 손을 다 턴(라운드를 마친) 플레이어는 라운드가 끝날 때까지 계속 회색으로 표시
+    if (state.finished && state.finished[seat]) return `<div class="trick-direction dir-${dir} passed-color"></div>`;
+    if (seat === turnSeatNow) return `<div class="trick-direction dir-${dir} turn-color"></div>`;
+    if (seat === passedSeatNow) return `<div class="trick-direction dir-${dir} passed-color"></div>`;
+    return "";
+  }).join("");
   const centerHtml = `
-    ${turnDir ? `<div class="trick-direction dir-${turnDir} turn-color"></div>` : ""}
-    ${passDir ? `<div class="trick-direction dir-${passDir} passed-color"></div>` : ""}
+    ${quadrants}
     ${requestedTag}
     ${dragonGiftTag}
     <div class="trick-plays">${plays || `<div class="trick-empty">${trick.lastCombo === null ? "리드를 기다리는 중" : ""}</div>`}</div>
@@ -1178,10 +1188,10 @@ function renderPlay() {
 
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
   const bottomHtml = `
-    <div class="hand-actions">
-      ${canCallSmall ? `<button id="smallTichuBtn" class="${confirmPending.smallTichu ? "danger" : "ghost"}">${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄 콜! (+100/-100)"}</button>` : ""}
+    <div class="hand-actions play-actions-grid">
+      <div class="action-slot-left">${canCallSmall ? `<button id="smallTichuBtn" class="big-action-btn ${confirmPending.smallTichu ? "danger" : "ghost"}">${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄"}</button>` : ""}</div>
       <button id="passBtn" class="big-action-btn" ${canPass ? "" : "disabled"}>패스</button>
-      <button id="playBtn" class="primary big-action-btn play-btn-pinned" ${canAttemptPlay ? "" : "disabled"}>내기</button>
+      <button id="playBtn" class="primary big-action-btn" ${canAttemptPlay ? "" : "disabled"}>내기</button>
     </div>
     <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
