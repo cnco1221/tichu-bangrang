@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.54"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.57"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -234,8 +234,7 @@ function renderLanding() {
               <button class="small ghost" id="changePwBtn">비밀번호 변경</button>
               <button class="small ghost" id="logoutBtn">로그아웃</button>
             </div>
-          </div>
-          <button class="primary" id="createBtn" ${myRoom ? "disabled" : ""}>새 방 만들기</button>`
+          </div>`
         : `<div class="my-info-box">
             <div class="status-line">게임을 하려면 로그인이 필요해요</div>
             <div class="hand-actions">
@@ -246,7 +245,10 @@ function renderLanding() {
       <div class="room-list-wrap">
         <div class="room-list-header">
           <span>열려있는 방 (${openRooms.length})</span>
-          <button class="small ghost" id="refreshRoomsBtn">새로고침</button>
+          <div class="room-list-header-btns">
+            ${loggedInAs ? `<button class="small primary" id="createBtn2" ${myRoom ? "disabled" : ""}>새 방 만들기</button>` : ""}
+            <button class="small ghost" id="refreshRoomsBtn">새로고침</button>
+          </div>
         </div>
         <div class="room-list">
           ${openRooms.length
@@ -291,14 +293,16 @@ function renderLanding() {
   if (rejoinRoomBtn) rejoinRoomBtn.onclick = () => rejoinRoom(true);
   const giveUpRejoinBtn = document.getElementById("giveUpRejoinBtn");
   if (giveUpRejoinBtn) giveUpRejoinBtn.onclick = () => { setStoredRoom(null); myRoom = ""; render(); };
-  const createBtn = document.getElementById("createBtn");
-  if (createBtn) createBtn.onclick = () => {
+  const doCreate = () => {
+    if (myRoom) return showToast("재입장해야 할 방이 있어요. 먼저 재입장하거나 포기해주세요");
     socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
       mySeat = res.seat; myRoom = res.code; isSpectator = false;
       setStoredRoom(myRoom, isSpectator);
     });
   };
+  const createBtn2 = document.getElementById("createBtn2");
+  if (createBtn2) createBtn2.onclick = doCreate;
   const doJoin = (asSpectator, code) => {
     if (myRoom) return showToast("재입장해야 할 방이 있어요. 먼저 재입장하거나 포기해주세요");
     if (asSpectator && !loggedInAs) return showToast("관전하려면 로그인이 필요해요");
@@ -318,6 +322,12 @@ let roomListFetched = false;
 function fetchRoomList(rerender) {
   socket.emit("listRooms", null, (res) => {
     openRooms = (res && res.rooms) || [];
+    // 재입장 대상으로 저장해둔 방이 실제로는 이미 사라졌으면(모두 나가서 서버에서 정리됨 등)
+    // "재입장"/"포기하기" 버튼이 의미 없이 계속 남아있지 않도록 정리
+    if (myRoom && !openRooms.some((r) => r.code === myRoom)) {
+      setStoredRoom(null);
+      myRoom = "";
+    }
     if (rerender && !state) render();
   });
 }

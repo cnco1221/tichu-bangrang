@@ -88,6 +88,7 @@ input[type=text] {
 .my-info-row .label { color: var(--ivory-dim); }
 .my-info-row .value { font-weight: 700; color: var(--ivory); }
 .room-list-header { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ivory-dim); }
+.room-list-header-btns { display: flex; align-items: center; gap: 6px; }
 .room-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
 .room-list-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--lacquer-2); border: 1px solid var(--jade); border-radius: 8px; padding: 8px 10px; }
 .room-list-info { font-size: 12px; text-align: left; font-weight: 700; color: var(--ivory); }
