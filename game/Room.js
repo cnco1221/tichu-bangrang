@@ -811,7 +811,9 @@ class Room {
     if (this.phase === "lobby" || this.phase === "gameover" || this.phase === "aborted") return;
     this.cancelVotes.add(seat);
     for (let s = 0; s < 4; s++) {
-      if (this.isBot(s)) this.cancelVotes.add(s); // 봇은 게임 취소 제안에 항상 동의
+      const p = this.players[s];
+      // 봇과 접속이 끊긴 플레이어는 게임 취소 제안에 항상 동의(자리를 비운 사람 때문에 취소 투표가 영영 안 끝나는 것 방지)
+      if (this.isBot(s) || (p && !p.connected)) this.cancelVotes.add(s);
     }
     if (this.cancelVotes.size >= 4) {
       this._clearTimer();
