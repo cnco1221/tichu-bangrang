@@ -258,7 +258,7 @@ input[type=text] {
 .hand-actions { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
 .hand-actions button { font-size: 11px; padding: 6px 10px; }
 /* 패스/내기는 오조작이 잦은 핵심 버튼이라 다른 버튼보다 더 크게 */
-.hand-actions button.big-action-btn { font-size: 15px; padding: 11px 20px; font-weight: 700; }
+.hand-actions button.big-action-btn { font-size: 13px; padding: 9px 16px; font-weight: 700; }
 /* 패스/내기 버튼 줄: 왼쪽 칸(스몰티츄, 있을 때만)-패스-내기를 그리드 3칸으로 나눠서
    스몰티츄 버튼이 사라져도 패스 버튼이 항상 가운데 자리에 그대로 있고, 내기는 항상 오른쪽 끝에 붙게 함 */
 .hand-actions.play-actions-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; justify-content: initial; }

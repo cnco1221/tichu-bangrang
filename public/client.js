@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.44"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.45"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -214,6 +214,7 @@ function renderLanding() {
         <div class="suit-chip" id="adminModeBtn" style="color:${SUIT_COLOR.star}; cursor:pointer;">★</div>
       </div>
       <div class="title accent">방랑단 티츄</div>
+      ${myRoom ? `<button class="primary" id="rejoinRoomBtn" ${rejoinInProgress ? "disabled" : ""}>${rejoinInProgress ? "재입장 중..." : `이전 방(${myRoom})으로 재입장`}</button>` : ""}
       ${loggedInAs
         ? `<div class="my-info-box">
             <div class="my-info-row"><span class="label">닉네임</span><span class="value">${escapeHtml(loggedInAs)}</span></div>
@@ -270,6 +271,8 @@ function renderLanding() {
   if (logoutBtn) logoutBtn.onclick = () => { socket.emit("logout"); loggedInAs = null; myStats = null; setStoredSession(null, null); render(); };
   const changePwBtn = document.getElementById("changePwBtn");
   if (changePwBtn) changePwBtn.onclick = () => openChangePasswordModal();
+  const rejoinRoomBtn = document.getElementById("rejoinRoomBtn");
+  if (rejoinRoomBtn) rejoinRoomBtn.onclick = () => rejoinRoom(true);
   const createBtn = document.getElementById("createBtn");
   if (createBtn) createBtn.onclick = () => {
     socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
@@ -827,8 +830,8 @@ function renderGrand() {
   const centerHtml = `<div class="trick-empty">라지티츄 여부를 결정하는 중...</div>${waitingOn.length ? `<div class="chip" style="margin-top:6px;">대기: ${waitingOn.join(", ")}</div>` : ""}<div class="chip" id="grandTimerChip" style="margin-top:6px;"></div>`;
   const bottomHtml = isSpectator ? "" : `
     <div class="hand-actions">
-      <button class="big-action-btn ${isPendingLarge ? "danger" : "tichu-large"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요? 다시 눌러서 확정" : "라지티츄"}</button>
-      <button class="big-action-btn ${isPendingSmall ? "danger" : "tichu-small"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요? 다시 눌러서 확정" : "스몰티츄"}</button>
+      <button class="big-action-btn ${isPendingLarge ? "danger" : "tichu-large"}" id="grandYes" ${locked ? "disabled" : ""}>${isPendingLarge ? "정말요?" : "라지티츄"}</button>
+      <button class="big-action-btn ${isPendingSmall ? "danger" : "tichu-small"}" id="grandSmall" ${locked ? "disabled" : ""}>${isPendingSmall ? "정말요?" : "스몰티츄"}</button>
       <button class="big-action-btn" id="grandNo" ${locked ? "disabled" : ""}>패스</button>
     </div>
     <div class="hand-cards">${myHand}</div>
@@ -1186,7 +1189,7 @@ function renderPlay() {
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
   const bottomHtml = `
     <div class="hand-actions play-actions-grid">
-      <div class="action-slot-left">${canCallSmall ? `<button id="smallTichuBtn" class="big-action-btn ${confirmPending.smallTichu ? "danger" : "tichu-small"}">${confirmPending.smallTichu ? "정말요? 다시 눌러서 확정" : "스몰티츄"}</button>` : ""}</div>
+      <div class="action-slot-left">${canCallSmall ? `<button id="smallTichuBtn" class="big-action-btn ${confirmPending.smallTichu ? "danger" : "tichu-small"}">${confirmPending.smallTichu ? "정말요?" : "스몰티츄"}</button>` : ""}</div>
       <button id="passBtn" class="big-action-btn" ${canPass ? "" : "disabled"}>패스</button>
       <button id="playBtn" class="primary big-action-btn" ${canAttemptPlay ? "" : "disabled"}>내기</button>
     </div>
@@ -1779,22 +1782,38 @@ socket.on("forceLogout", ({ reason }) => {
   showToast(reason || "다른 기기에서 로그인해서 로그아웃됐어요");
   render();
 });
+let rejoinInProgress = false;
+// 저장해둔 방으로 재입장 시도(수동 "재입장" 버튼 및 같은 세션 내 네트워크 재연결 둘 다에서 씀)
+function rejoinRoom(rerender) {
+  if (!myRoom) { if (rerender) render(); return; }
+  rejoinInProgress = true;
+  if (rerender) render();
+  socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
+    rejoinInProgress = false;
+    if (res && res.ok) {
+      if (typeof res.seat === "number") mySeat = res.seat;
+      isSpectator = !!res.spectator;
+      setStoredRoom(myRoom, isSpectator);
+    } else {
+      showToast((res && res.error) || "재입장에 실패했어요");
+      setStoredRoom(null); // 방이 이미 사라졌거나 재입장할 수 없으면 계속 재시도하지 않게 정리
+      myRoom = "";
+    }
+    render();
+  });
+}
+
+let hasConnectedOnce = false;
 socket.on("connect", () => {
-  // 새로고침으로 처음 접속했을 때도(네트워크 재연결뿐 아니라) 저장해둔 방으로 자동 복귀 시도.
-  // 로그인 복원(loginWithToken)이 끝난 뒤에 시도해야 관전 재입장 시 "로그인 필요" 오류가 안 남
-  const rejoinRoom = () => {
-    if (!myRoom) { render(); return; }
-    socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
-      if (res && res.ok) {
-        if (typeof res.seat === "number") mySeat = res.seat;
-        isSpectator = !!res.spectator;
-        setStoredRoom(myRoom, isSpectator);
-      } else {
-        setStoredRoom(null); // 방이 이미 사라졌거나 재입장할 수 없으면 계속 재시도하지 않게 정리
-        myRoom = "";
-      }
-      render();
-    });
+  // 같은 세션에서 네트워크가 잠깐 끊겼다 다시 붙은 경우만 자동으로 방에 복귀시키고,
+  // 새로고침 등으로 완전히 새로 접속한 경우엔 자동으로 들어가지 않고 랜딩 화면의 "재입장" 버튼을 눌러야 들어가도록 함
+  // (서버가 재배포 등으로 재시작돼 방이 사라진 경우에도 조용히 실패하는 대신 버튼을 눌렀을 때 바로 에러를 보여줄 수 있음)
+  const isReconnect = hasConnectedOnce;
+  hasConnectedOnce = true;
+
+  const afterLoginRestore = () => {
+    if (isReconnect) rejoinRoom(false);
+    else render();
   };
 
   // "로그인 상태 유지"를 체크했었다면 저장해둔 세션 토큰으로 자동 로그인 시도
@@ -1810,12 +1829,12 @@ socket.on("connect", () => {
         } else {
           setStoredSession(null, null);
         }
-        rejoinRoom();
+        afterLoginRestore();
       });
       return;
     }
   }
-  rejoinRoom();
+  afterLoginRestore();
 });
 socket.on("globalChatMessage", (m) => {
   globalChatMessages.push(m);
