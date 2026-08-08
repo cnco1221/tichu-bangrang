@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.50"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.53"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -42,15 +42,20 @@ function fetchMyStats(rerender) {
 let myRoom = localStorage.getItem("tichu_room") || "";
 let mySeat = null;
 let isSpectator = localStorage.getItem("tichu_spectator") === "1";
+let myRoomRanked = localStorage.getItem("tichu_ranked") === "1";
 
-// 방 코드/관전 여부를 저장해둬서 새로고침·재접속해도 진행 중이던 게임에 자동으로 다시 들어갈 수 있게 함
-function setStoredRoom(room, spectator) {
+// 방 코드/관전 여부/등급전 여부를 저장해둬서 새로고침·재접속해도 진행 중이던 게임에 자동으로 다시 들어갈 수 있게 함.
+// 등급전은 승/패가 실제로 기록되니까 "포기하고 다른 방 이용하기"를 못 하게 강제로 재입장시켜야 함
+function setStoredRoom(room, spectator, ranked) {
   if (room) {
     localStorage.setItem("tichu_room", room);
     localStorage.setItem("tichu_spectator", spectator ? "1" : "0");
+    if (ranked !== undefined) { myRoomRanked = !!ranked; localStorage.setItem("tichu_ranked", myRoomRanked ? "1" : "0"); }
   } else {
     localStorage.removeItem("tichu_room");
     localStorage.removeItem("tichu_spectator");
+    localStorage.removeItem("tichu_ranked");
+    myRoomRanked = false;
   }
 }
 let state = null;
@@ -214,7 +219,12 @@ function renderLanding() {
         <div class="suit-chip" id="adminModeBtn" style="color:${SUIT_COLOR.star}; cursor:pointer;">★</div>
       </div>
       <div class="title accent">방랑단 티츄</div>
-      ${myRoom ? `<button class="primary" id="rejoinRoomBtn" ${rejoinInProgress ? "disabled" : ""}>${rejoinInProgress ? "재입장 중..." : `이전 방(${myRoom})으로 재입장`}</button>` : ""}
+      ${myRoom ? `
+        <button class="primary" id="rejoinRoomBtn" ${rejoinInProgress ? "disabled" : ""}>${rejoinInProgress ? "재입장 중..." : `이전 방(${myRoom})으로 재입장`}</button>
+        ${myRoomRanked
+          ? `<div class="hint">등급전은 포기할 수 없어요 — 재입장해서 끝내주세요</div>`
+          : `<button class="text-btn" id="giveUpRejoinBtn">이 방은 포기하고 계속하기</button>`}
+      ` : ""}
       ${loggedInAs
         ? `<div class="my-info-box">
             <div class="my-info-row"><span class="label">닉네임</span><span class="value">${escapeHtml(loggedInAs)}</span></div>
@@ -225,7 +235,7 @@ function renderLanding() {
               <button class="small ghost" id="logoutBtn">로그아웃</button>
             </div>
           </div>
-          <button class="primary" id="createBtn">새 방 만들기</button>`
+          <button class="primary" id="createBtn" ${myRoom ? "disabled" : ""}>새 방 만들기</button>`
         : `<div class="my-info-box">
             <div class="status-line">게임을 하려면 로그인이 필요해요</div>
             <div class="hand-actions">
@@ -241,14 +251,15 @@ function renderLanding() {
         <div class="room-list">
           ${openRooms.length
             ? openRooms.map((r) => {
-                // 내가 나온 방(재입장 버튼으로 들어가야 함)이면 입장/관전 입장 버튼을 잠가서
-                // 느린 일반 입장 경로로 잘못 들어가 관전으로 빠지는 일을 막음
+                // 재입장해야 할 방이 남아있는 동안엔 다른 방(포함 이 방 자체)에 일반 경로로 들어가는 걸 전부 막아서
+                // 느린 일반 입장 경로로 잘못 들어가 관전으로 빠지거나, 재입장을 안 하고 다른 방에 들어가버리는 걸 막음
                 const isMyPendingRoom = myRoom && r.code === myRoom;
+                const roomTitle = r.hostName ? `${escapeHtml(r.hostName)}의 방` : r.code;
                 return `<div class="room-list-row">
-                <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}${r.phase !== "lobby" ? " · 게임중" : ""}</div>
+                <div class="room-list-info">${roomTitle} (${r.code}) · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}${r.phase !== "lobby" ? " · 게임중" : ""}</div>
                 <div class="room-list-btns">
-                  ${r.phase === "lobby" ? `<button class="small primary" data-join="${r.code}" ${(loggedInAs && !isMyPendingRoom) ? "" : "disabled"}>입장</button>` : ""}
-                  <button class="small ghost" data-spectate="${r.code}" ${(loggedInAs && !isMyPendingRoom) ? "" : "disabled"}>${isMyPendingRoom ? "재입장 버튼 이용" : "관전 입장"}</button>
+                  ${r.phase === "lobby" ? `<button class="small primary" data-join="${r.code}" ${(loggedInAs && !myRoom) ? "" : "disabled"}>입장</button>` : ""}
+                  <button class="small ghost" data-spectate="${r.code}" ${(loggedInAs && !myRoom) ? "" : "disabled"}>${isMyPendingRoom ? "재입장 버튼 이용" : "관전 입장"}</button>
                 </div>
               </div>`;
               }).join("")
@@ -278,6 +289,8 @@ function renderLanding() {
   if (changePwBtn) changePwBtn.onclick = () => openChangePasswordModal();
   const rejoinRoomBtn = document.getElementById("rejoinRoomBtn");
   if (rejoinRoomBtn) rejoinRoomBtn.onclick = () => rejoinRoom(true);
+  const giveUpRejoinBtn = document.getElementById("giveUpRejoinBtn");
+  if (giveUpRejoinBtn) giveUpRejoinBtn.onclick = () => { setStoredRoom(null); myRoom = ""; render(); };
   const createBtn = document.getElementById("createBtn");
   if (createBtn) createBtn.onclick = () => {
     socket.emit("createRoom", { name: loggedInAs, token: myToken }, (res) => {
@@ -287,6 +300,7 @@ function renderLanding() {
     });
   };
   const doJoin = (asSpectator, code) => {
+    if (myRoom) return showToast("재입장해야 할 방이 있어요. 먼저 재입장하거나 포기해주세요");
     if (asSpectator && !loggedInAs) return showToast("관전하려면 로그인이 필요해요");
     socket.emit("joinRoom", { code, name: loggedInAs || "관전자", asSpectator, token: myToken }, (res) => {
       if (res.error) return showToast(res.error);
@@ -1776,6 +1790,8 @@ socket.on("state", (s) => {
     setTimeout(() => { exchangeSummaryVisible = false; render(); }, 3000);
   }
   state = s;
+  // 등급전 여부를 계속 최신으로 저장해둠(포기 못 하게 강제 재입장시키는 데 씀)
+  if (myRoom && s.code === myRoom) setStoredRoom(myRoom, isSpectator, !!s.ranked);
   applyTichuBackground(s);
   render();
 });

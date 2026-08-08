@@ -5,7 +5,7 @@ const TEAM_OF_SEAT = [0, 1, 0, 1]; // 좌석0,2 = 팀A(0) / 좌석1,3 = 팀B(1)
 const TARGET_SCORE = 1000;
 const TURN_SECONDS = 30;
 const MAX_ABANDON = 3;
-const DISCONNECT_GRACE_MS = 3 * 60 * 1000; // 접속이 끊긴 뒤 이 시간 동안은 턴 시간초과로 잠수 스택을 추가로 안 쌓음(재접속 유예기간)
+const DISCONNECT_GRACE_MS = 60 * 1000; // 접속이 끊긴 뒤 이 시간 동안은 턴 시간초과로 잠수 스택을 추가로 안 쌓음(재접속 유예기간)
 
 function otherTeam(t) { return t === 0 ? 1 : 0; }
 function teammateOf(seat) { return (seat + 2) % 4; }

@@ -111,7 +111,9 @@ io.on("connection", (socket) => {
     for (const [code, room] of rooms.entries()) {
       const playerCount = room.players.filter((p) => p).length;
       if (playerCount === 0) continue;
-      list.push({ code, playerCount, spectatorCount: room.spectators.length, phase: room.phase });
+      const hostSeat = room.players.findIndex((p) => p && !p.isBot && p.pid === room.hostPid);
+      const hostName = hostSeat !== -1 ? room.players[hostSeat].name : null;
+      list.push({ code, playerCount, spectatorCount: room.spectators.length, phase: room.phase, hostName });
     }
     cb && cb({ rooms: list });
   });

@@ -95,7 +95,9 @@ input[type=text] {
 .room-list-btns button { padding: 5px 9px; font-size: 11px; }
 
 /* ---------- Lobby ---------- */
-.lobby { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 18px; overflow-y: auto; padding: calc(20px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom)); }
+/* justify-content:center 대신 flex-start를 쓰는 이유: 봇 추가 등으로 콘텐츠 높이가 바뀌어도
+   전체가 재정렬되며 화면이 흔들리지 않게 하기 위함(위쪽 여백은 대신 padding-top으로 확보해서 시각적 균형을 맞춤) */
+.lobby { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 18px; overflow-y: auto; padding: calc(9vh + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom)); }
 .seat-grid { display: grid; grid-template-columns: repeat(2, 150px); gap: 14px; }
 .seat-card { border: 1px solid var(--panel-line); background: var(--panel); border-radius: 12px; padding: 14px; text-align: center; min-height: 76px; display: flex; flex-direction: column; justify-content: center; gap: 4px; position: relative; }
 .seat-card .seat-name { font-size: 16px; font-weight: 700; color: var(--ivory); }
