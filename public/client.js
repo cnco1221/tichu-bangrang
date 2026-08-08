@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.48"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.50"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -1196,11 +1196,14 @@ function renderPlay() {
   const canPass = !isSpectator && isMyTurn && !isLeading;
 
   const statusLine = isSpectator ? "관전 중" : isMyTurn ? (isLeading ? "당신 차례입니다 — 리드하세요" : "당신 차례입니다") : (selected.size > 0 && !selectedIsBomb ? "내 차례가 아니에요 (폭탄만 낼 수 있어요)" : `${seatLabel(state.turnSeat)}의 차례...`);
+  // 카드를 하나라도 고르면 "내기", 하나도 안 골랐으면 "패스"로 바뀌는 버튼 하나로 통일(패스/내기 오조작 방지)
+  const hasSelection = selected.size > 0;
+  const dynamicLabel = hasSelection ? "내기" : "패스";
+  const dynamicEnabled = hasSelection ? canAttemptPlay : canPass;
   const bottomHtml = `
-    <div class="hand-actions play-actions-grid">
+    <div class="hand-actions dynamic-action-row">
       <div class="action-slot-left">${canCallSmall ? `<button id="smallTichuBtn" class="big-action-btn ${confirmPending.smallTichu ? "danger" : "tichu-small"}">${confirmPending.smallTichu ? "정말요?" : "스몰티츄"}</button>` : ""}</div>
-      <button id="passBtn" class="big-action-btn" ${canPass ? "" : "disabled"}>패스</button>
-      <button id="playBtn" class="primary big-action-btn" ${canAttemptPlay ? "" : "disabled"}>내기</button>
+      <button id="dynamicActionBtn" class="big-action-btn ${hasSelection ? "primary" : ""}" ${dynamicEnabled ? "" : "disabled"}>${dynamicLabel}</button>
     </div>
     <div class="hand-cards">${isSpectator ? "" : handHTML}</div>
   `;
@@ -1210,16 +1213,18 @@ function renderPlay() {
   document.querySelectorAll(".hand-cards .card").forEach((el) => {
     el.onclick = () => { const id = el.dataset.id; if (selected.has(id)) selected.delete(id); else selected.add(id); render(); };
   });
-  const playBtn = document.getElementById("playBtn");
-  if (playBtn) playBtn.onclick = () => {
-    const ids = Array.from(selected);
-    const cards = ids.map((id) => myHand.find((c) => c.id === id));
-    const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
-    if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
-    else submitPlay(ids, null);
+  const dynamicBtn = document.getElementById("dynamicActionBtn");
+  if (dynamicBtn) dynamicBtn.onclick = () => {
+    if (selected.size > 0) {
+      const ids = Array.from(selected);
+      const cards = ids.map((id) => myHand.find((c) => c.id === id));
+      const isSparrowLead = isLeading && cards.some((c) => c.special === "sparrow");
+      if (isSparrowLead) openSparrowModal((rank) => submitPlay(ids, rank));
+      else submitPlay(ids, null);
+    } else {
+      socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
+    }
   };
-  const passBtn = document.getElementById("passBtn");
-  if (passBtn) passBtn.onclick = () => socket.emit("passTurn", null, (res) => { if (res && res.error) showToast(res.error); });
   const smallBtn = document.getElementById("smallTichuBtn");
   if (smallBtn) smallBtn.onclick = () => handleDoubleConfirm("smallTichu", () => socket.emit("callTichu"));
 
@@ -1724,6 +1729,10 @@ let playLogPendingClear = false;
 function updatePlayLog(s) {
   const trick = s.currentTrick;
   if (!trick) return;
+  // seatLabel()은 전역 state를 읽는데, 이 함수는 전역 state가 아직 새 값으로 갱신되기 전에 호출돼서
+  // (특히 재접속 직후 맨 처음 받는 state처럼 전역 state가 아직 null일 때) seatLabel이 죽어버리는 문제가 있었음.
+  // 그래서 여기서는 항상 방금 받은 s.players에서 직접 이름을 찾음
+  const nameOf = (seat) => { const p = s.players[seat]; return p ? p.name : `좌석${seat + 1}`; };
   const playsLen = trick.plays.length;
 
   if (playLogPendingClear && playsLen > 0) {
@@ -1735,7 +1744,7 @@ function updatePlayLog(s) {
   if (playsLen > playLogPlaysSeen) {
     for (let i = playLogPlaysSeen; i < playsLen; i++) {
       const p = trick.plays[i];
-      playLogEntries.push({ key: `p${s.actionSeq}_${i}`, text: `${escapeHtml(seatLabel(p.seat))} - ${comboLabel(p.combo)}` });
+      playLogEntries.push({ key: `p${s.actionSeq}_${i}`, text: `${escapeHtml(nameOf(p.seat))} - ${comboLabel(p.combo)}` });
     }
     playLogPlaysSeen = playsLen;
   } else if (playsLen === 0 && playLogPlaysSeen > 0) {
@@ -1745,7 +1754,7 @@ function updatePlayLog(s) {
 
   if (s.lastTrickWin && s.lastTrickWin.seq > playLogSeenWinSeq) {
     playLogSeenWinSeq = s.lastTrickWin.seq;
-    playLogEntries.push({ key: `win${s.lastTrickWin.seq}`, text: `${escapeHtml(seatLabel(s.lastTrickWin.seat))} 트릭 획득` });
+    playLogEntries.push({ key: `win${s.lastTrickWin.seq}`, text: `${escapeHtml(nameOf(s.lastTrickWin.seat))} 트릭 획득` });
   }
 
   if (playLogEntries.length > 20) playLogEntries = playLogEntries.slice(-20);
