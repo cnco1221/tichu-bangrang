@@ -145,7 +145,11 @@ class Room {
   // 같은 토큰을 들고 다시 접속하면 원래 좌석으로 복귀(연결 끊긴 좌석만 대상)
   reconnectPlayer(token, newSocketId) {
     if (!token) return null;
-    const seat = this.players.findIndex((p) => p && p.token === token && !p.connected);
+    // 연결이 끊긴 사람만 매칭하면, 탭을 닫아도 소켓이 핑 타임아웃으로 실제 끊기기까지 수십 초의
+    // 유예 시간(좀비 연결) 동안엔 서버가 아직 "연결됨"으로 보고 있어서 재입장이 관전으로 빠지는 문제가 있었음.
+    // 토큰이 맞으면 기존 연결 상태와 상관없이 항상 그 좌석을 새 소켓으로 넘겨줌(좀비 연결은 나중에 실제로
+    // 끊길 때 이미 socketId가 바뀌어 있어 아무 영향도 안 줌)
+    const seat = this.players.findIndex((p) => p && p.token === token);
     if (seat === -1) return null;
     this.players[seat].socketId = newSocketId;
     this.players[seat].connected = true;

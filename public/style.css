@@ -190,6 +190,11 @@ input[type=text] {
 .trick-direction.dir-west  { clip-path: polygon(50% 50%, 0 100%, 0 0); }
 .trick-direction.turn-color { background: var(--gold-soft); opacity: .22; }
 .trick-direction.passed-color { background: #808080; opacity: .3; }
+.finish-rank-label { position: absolute; font-size: 12px; font-weight: 800; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); opacity: 1; }
+.trick-direction.dir-north .finish-rank-label { top: 10%; left: 50%; transform: translateX(-50%); }
+.trick-direction.dir-east .finish-rank-label  { top: 50%; right: 10%; transform: translateY(-50%); }
+.trick-direction.dir-south .finish-rank-label { bottom: 10%; left: 50%; transform: translateX(-50%); }
+.trick-direction.dir-west .finish-rank-label  { top: 50%; left: 10%; transform: translateY(-50%); }
 .trick-plays { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
 .mini-combo { display: flex; flex-wrap: wrap; gap: 3px; max-width: 100%; justify-content: center; }
 .mini-combo .card { margin-left: 0; }

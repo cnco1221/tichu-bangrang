@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.45"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.47"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -240,13 +240,18 @@ function renderLanding() {
         </div>
         <div class="room-list">
           ${openRooms.length
-            ? openRooms.map((r) => `<div class="room-list-row">
+            ? openRooms.map((r) => {
+                // 내가 나온 방(재입장 버튼으로 들어가야 함)이면 입장/관전 입장 버튼을 잠가서
+                // 느린 일반 입장 경로로 잘못 들어가 관전으로 빠지는 일을 막음
+                const isMyPendingRoom = myRoom && r.code === myRoom;
+                return `<div class="room-list-row">
                 <div class="room-list-info">${r.code} · ${r.playerCount}/4명${r.spectatorCount ? ` · 관전${r.spectatorCount}` : ""}${r.phase !== "lobby" ? " · 게임중" : ""}</div>
                 <div class="room-list-btns">
-                  ${r.phase === "lobby" ? `<button class="small primary" data-join="${r.code}" ${loggedInAs ? "" : "disabled"}>입장</button>` : ""}
-                  <button class="small ghost" data-spectate="${r.code}" ${loggedInAs ? "" : "disabled"}>관전 입장</button>
+                  ${r.phase === "lobby" ? `<button class="small primary" data-join="${r.code}" ${(loggedInAs && !isMyPendingRoom) ? "" : "disabled"}>입장</button>` : ""}
+                  <button class="small ghost" data-spectate="${r.code}" ${(loggedInAs && !isMyPendingRoom) ? "" : "disabled"}>${isMyPendingRoom ? "재입장 버튼 이용" : "관전 입장"}</button>
                 </div>
-              </div>`).join("")
+              </div>`;
+              }).join("")
             : `<div class="hint">참가 가능한 방이 없어요</div>`}
         </div>
       </div>
@@ -1155,14 +1160,18 @@ function renderPlay() {
     : "";
   // 사분면 색은 마지막으로 낸 사람이 아니라 지금 차례인 사람 쪽을 가리킴
   const turnSeatNow = state.pendingDragonChoice === null ? state.turnSeat : null;
+  const finishRank = (seat) => {
+    const idx = state.finishOrder ? state.finishOrder.indexOf(seat) : -1;
+    return idx === -1 ? "" : `${idx + 1}등`;
+  };
   const quadrants = [
     { seat: topSeat, dir: "north" },
     { seat: rightSeat, dir: "east" },
     { seat: viewerSeat, dir: "south" },
     { seat: leftSeat, dir: "west" },
   ].map(({ seat, dir }) => {
-    // 손을 다 턴(라운드를 마친) 플레이어는 라운드가 끝날 때까지 계속 회색으로 표시
-    if (state.finished && state.finished[seat]) return `<div class="trick-direction dir-${dir} passed-color"></div>`;
+    // 손을 다 턴(라운드를 마친) 플레이어는 라운드가 끝날 때까지 계속 회색으로 표시, 몇 등인지도 같이 표시
+    if (state.finished && state.finished[seat]) return `<div class="trick-direction dir-${dir} passed-color"><div class="finish-rank-label">${finishRank(seat)}</div></div>`;
     if (seat === turnSeatNow) return `<div class="trick-direction dir-${dir} turn-color"></div>`;
     return "";
   }).join("");
@@ -1415,7 +1424,10 @@ function renderRoundEnd() {
     <div class="modal exchange-modal-compact">
       <h3 class="accent" style="font-size:20px">${state.roundHistory ? state.roundHistory.length : ""}라운드 결과</h3>
       ${s.doubleWin !== null ? `<div class="status-line">${s.doubleWin === myTeam ? "내팀" : "상대팀"} 더블윈! (+200)</div>` : ""}
-      <div class="status-line" style="font-size:16px; font-weight:700; color:var(--ivory);">이번 라운드 : 내팀 ${s.teamPoints[myTeam]}점 · 상대팀 ${s.teamPoints[oppTeam]}점</div>
+      <table class="summary-table">
+        <tr><th></th><th>내팀</th><th>상대팀</th></tr>
+        <tr><td>이번 라운드점수</td><td>${s.teamPoints[myTeam]}</td><td>${s.teamPoints[oppTeam]}</td></tr>
+      </table>
       <div class="chip" id="roundEndTimerChip" style="margin-top:6px;"></div>
     </div>
   `;
@@ -1783,9 +1795,14 @@ socket.on("forceLogout", ({ reason }) => {
   render();
 });
 let rejoinInProgress = false;
-// 저장해둔 방으로 재입장 시도(수동 "재입장" 버튼 및 같은 세션 내 네트워크 재연결 둘 다에서 씀)
+// 저장해둔 방으로 재입장 시도(수동 "재입장" 버튼 및 같은 세션 내 네트워크 재연결 둘 다에서 씀).
+// 이미 재입장 요청이 진행 중이면 새로 emit하지 않음 - 그렇지 않으면(예: 와이파이가 잠깐 끊겼다 붙어서
+// 자동 재접속이 조용히 시도되는 도중에 사용자가 재입장 버튼을 또 누르는 경우) 같은 토큰으로 joinRoom이
+// 두 번 날아가서, 먼저 도착한 요청이 좌석을 이미 채워버린 뒤 나중 요청이 "방이 꽉 참" 판정을 받아
+// 관전으로 잘못 들어가는 문제가 있었음
 function rejoinRoom(rerender) {
   if (!myRoom) { if (rerender) render(); return; }
+  if (rejoinInProgress) { if (rerender) render(); return; }
   rejoinInProgress = true;
   if (rerender) render();
   socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
