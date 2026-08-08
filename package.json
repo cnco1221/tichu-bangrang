@@ -10,8 +10,9 @@
     "node": ">=18"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
-    "socket.io": "^4.7.5",
-    "firebase-admin": "^12.1.0"
+    "firebase-admin": "^12.1.0",
+    "socket.io": "^4.7.5"
   }
 }

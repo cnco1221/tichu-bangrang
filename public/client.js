@@ -1,6 +1,6 @@
 const socket = io();
 const app = document.getElementById("app");
-const APP_VERSION = "0.47"; // 수정할 때마다 0.01씩 올림
+const APP_VERSION = "0.48"; // 수정할 때마다 0.01씩 올림
 
 let myName = localStorage.getItem("tichu_name") || "";
 let myToken = localStorage.getItem("tichu_token");
@@ -1795,6 +1795,7 @@ socket.on("forceLogout", ({ reason }) => {
   render();
 });
 let rejoinInProgress = false;
+let rejoinAttemptId = 0;
 // 저장해둔 방으로 재입장 시도(수동 "재입장" 버튼 및 같은 세션 내 네트워크 재연결 둘 다에서 씀).
 // 이미 재입장 요청이 진행 중이면 새로 emit하지 않음 - 그렇지 않으면(예: 와이파이가 잠깐 끊겼다 붙어서
 // 자동 재접속이 조용히 시도되는 도중에 사용자가 재입장 버튼을 또 누르는 경우) 같은 토큰으로 joinRoom이
@@ -1804,8 +1805,19 @@ function rejoinRoom(rerender) {
   if (!myRoom) { if (rerender) render(); return; }
   if (rejoinInProgress) { if (rerender) render(); return; }
   rejoinInProgress = true;
+  const attemptId = ++rejoinAttemptId;
   if (rerender) render();
+  // 서버 응답이 아예 안 오는 경우(연결 문제 등) 버튼이 "재입장 중..."에 영원히 멈춰서
+  // 이후 클릭이 전부 조용히 무시되는 걸 막기 위한 타임아웃 안전장치
+  const timeoutHandle = setTimeout(() => {
+    if (!rejoinInProgress || attemptId !== rejoinAttemptId) return;
+    rejoinInProgress = false;
+    showToast("서버 응답이 없어요. 다시 시도해주세요");
+    render();
+  }, 8000);
   socket.emit("joinRoom", { code: myRoom, name: myName, asSpectator: isSpectator, token: myToken }, (res) => {
+    if (attemptId !== rejoinAttemptId) return; // 이미 타임아웃으로 포기한 시도의 뒤늦은 응답이면 무시
+    clearTimeout(timeoutHandle);
     rejoinInProgress = false;
     if (res && res.ok) {
       if (typeof res.seat === "number") mySeat = res.seat;

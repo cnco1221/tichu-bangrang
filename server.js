@@ -1,3 +1,4 @@
+require("dotenv").config(); // 로컬 개발용 .env 파일 로드(배포 환경은 이미 실제 환경변수가 설정돼 있어 영향 없음)
 const path = require("path");
 const express = require("express");
 const http = require("http");
