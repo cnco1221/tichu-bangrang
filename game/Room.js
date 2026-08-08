@@ -5,6 +5,7 @@ const TEAM_OF_SEAT = [0, 1, 0, 1]; // 좌석0,2 = 팀A(0) / 좌석1,3 = 팀B(1)
 const TARGET_SCORE = 1000;
 const TURN_SECONDS = 30;
 const MAX_ABANDON = 3;
+const DISCONNECT_GRACE_MS = 3 * 60 * 1000; // 접속이 끊긴 뒤 이 시간 동안은 턴 시간초과로 잠수 스택을 추가로 안 쌓음(재접속 유예기간)
 
 function otherTeam(t) { return t === 0 ? 1 : 0; }
 function teammateOf(seat) { return (seat + 2) % 4; }
@@ -129,6 +130,7 @@ class Room {
         const p = this.players[seat];
         p.connected = false;
         p.socketId = null;
+        p.disconnectedAt = Date.now();
         this._addAbandonStrike(seat);
       } else {
         this.players[seat] = null;
@@ -147,6 +149,7 @@ class Room {
     if (seat === -1) return null;
     this.players[seat].socketId = newSocketId;
     this.players[seat].connected = true;
+    this.players[seat].disconnectedAt = null;
     return seat;
   }
 
@@ -753,8 +756,14 @@ class Room {
   _onTimeout() {
     const seat = this.turnSeat;
     if (seat === null || this.phase !== "play") return;
-    this._addAbandonStrike(seat);
-    if (this.phase !== "play") { this.notify(this.code); return; } // 스택 3회로 방금 무효 처리됐으면 더 진행하지 않음
+    const p = this.players[seat];
+    // 연결이 끊긴 사람은 끊긴 직후 DISCONNECT_GRACE_MS 동안은 턴 시간초과로 추가 스택을 안 쌓아서 재접속할 시간을 줌
+    // (유예기간이 지나면 다시 정상적으로 스택이 쌓여서, 정말 안 돌아오는 사람 때문에 게임이 무한정 붙잡혀 있지는 않음)
+    const withinGrace = p && !p.connected && p.disconnectedAt && (Date.now() - p.disconnectedAt < DISCONNECT_GRACE_MS);
+    if (!withinGrace) {
+      this._addAbandonStrike(seat);
+      if (this.phase !== "play") { this.notify(this.code); return; } // 스택 3회로 방금 무효 처리됐으면 더 진행하지 않음
+    }
 
     const hand = this.hands[seat];
     if (!hand || hand.length === 0) { this.notify(this.code); return; } // 방어적 가드 (정상 플로우에선 발생 안 함)

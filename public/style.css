@@ -55,6 +55,11 @@ button.primary { background: linear-gradient(180deg, var(--gold-soft), var(--gol
 button.primary:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
 button.ghost { background: transparent; }
 button.danger { border-color: var(--danger); color: var(--danger); }
+/* 라지티츄 = 빨강, 스몰티츄 = 파랑 */
+button.tichu-large { background: linear-gradient(180deg, #c4655d, var(--danger)); color: #fff; font-weight: 700; border: none; }
+button.tichu-large:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
+button.tichu-small { background: linear-gradient(180deg, #5679ac, var(--star)); color: #fff; font-weight: 700; border: none; }
+button.tichu-small:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
 button.small { padding: 6px 10px; font-size: 12px; }
 button.icon-btn { width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 17px; flex-shrink: 0; }
 button.icon-btn.text-btn { width: auto; height: auto; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; color: var(--danger); border-color: var(--danger); }
